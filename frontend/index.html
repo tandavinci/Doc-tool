@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Documentation AI Tool</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+
+<h1>📄 Documentation Tool</h1>
+
+<!-- Global tooltip -->
+<div id="ca-tooltip"></div>
+
+<!-- ═══════════════════════════════════════════════
+     GRAMMARLY-LIKE FIX POPUP
+     ═══════════════════════════════════════════════ -->
+<div id="ca-fix-popup">
+  <div class="fp-header">
+    <span id="fp-cat"></span>
+    <span id="fp-role"></span>
+    <button class="fp-close" onclick="closeFixPopup()" title="Close">✕</button>
+  </div>
+  <div class="fp-body">
+    <div id="fp-msg" class="fp-msg"></div>
+    <div class="fp-replace-label">Replace with:</div>
+    <div id="fp-sugg-btns" class="fp-sugg-btns"></div>
+    <div class="fp-custom-row">
+      <input type="text" id="fp-custom-input" placeholder="Type your own replacement…">
+      <button class="btn-sm btn-green" onclick="applyPopupCustom()">Apply</button>
+    </div>
+  </div>
+  <div class="fp-footer">
+    <button class="btn-sm btn-green" onclick="applyPopupDefault()">✓ Accept</button>
+    <button class="btn-sm btn-grey" onclick="ignoreFromPopup()">✗ Ignore</button>
+  </div>
+</div>
+
+<!-- TABS -->
+<div class="tabs">
+  <span class="tab active" onclick="openTab('converter',event)">DOC to DITA</span>
+  <span class="tab"        onclick="openTab('analyzer',event)">Impact Analyzer</span>
+  <span class="tab"        onclick="openTab('contentAnalysis',event)">Content Analysis</span>
+  <span class="tab"        onclick="openTab('rewrite',event)">Write</span>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     TAB 1: DITA CONVERTER
+     ═══════════════════════════════════════════════ -->
+<div id="converter" class="section">
+  <h2>DOC to DITA Converter</h2>
+  <textarea id="docInput" placeholder="Paste document content"></textarea>
+  <br>
+  <button onclick="convertConcept()">Convert to Concept</button>
+  <button onclick="convertTask()">Convert to Task</button>
+  <h3>Output</h3>
+  <textarea id="xmlOutput"></textarea>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     TAB 2: IMPACT ANALYZER
+     ═══════════════════════════════════════════════ -->
+<div id="analyzer" class="section" style="display:none">
+  <h2>JIRA &amp; DITA Map Impact Analyzer</h2>
+  <p style="font-size:13px;color:#666;margin-top:0;margin-bottom:18px;">
+    Upload your JIRA export (Excel) and your DITA map output (ZIP containing HTML topics + TOC).
+    The analyzer will tell you which topics need to be <strong>created</strong> and which need to be <strong>updated</strong>.
+  </p>
+
+  <!-- ── Upload Row ── -->
+  <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:18px;">
+
+    <div style="flex:1;min-width:240px;background:#f8fafc;border:1px solid #dde3ea;border-radius:8px;padding:16px;">
+      <div style="font-weight:600;font-size:13px;color:#1a2332;margin-bottom:8px;">📊 JIRA Export (Excel)</div>
+      <div style="font-size:12px;color:#666;margin-bottom:10px;">Accepts .xlsx or .xls exported from JIRA</div>
+      <input type="file" id="jiraFile" accept=".xlsx,.xls" style="margin:0;">
+      <div id="jira-col-row" style="display:none;margin-top:12px;">
+        <label style="font-size:12px;font-weight:600;color:#555;">Summary column:</label>
+        <select id="jiraSummaryCol" style="margin-left:6px;font-size:12px;padding:3px 6px;border:1px solid #ccc;border-radius:4px;"></select>
+        <br><br>
+        <label style="font-size:12px;font-weight:600;color:#555;">Description column <span style="font-weight:normal;">(optional)</span>:</label>
+        <select id="jiraDescCol" style="margin-left:6px;font-size:12px;padding:3px 6px;border:1px solid #ccc;border-radius:4px;"></select>
+        <br><br>
+        <label style="font-size:12px;font-weight:600;color:#555;">Issue Type column <span style="font-weight:normal;">(optional)</span>:</label>
+        <select id="jiraTypeCol" style="margin-left:6px;font-size:12px;padding:3px 6px;border:1px solid #ccc;border-radius:4px;"></select>
+        <div id="jira-preview" style="margin-top:10px;font-size:12px;color:#007cba;font-weight:600;"></div>
+      </div>
+    </div>
+
+    <div style="flex:1;min-width:240px;background:#f8fafc;border:1px solid #dde3ea;border-radius:8px;padding:16px;">
+      <div style="font-weight:600;font-size:13px;color:#1a2332;margin-bottom:8px;">📦 DITA Map Output (ZIP)</div>
+      <div style="font-size:12px;color:#666;margin-bottom:10px;">ZIP containing HTML topic files and TOC/ditamap</div>
+      <input type="file" id="ditaZipFile" accept=".zip" style="margin:0;">
+      <div id="dita-preview" style="margin-top:10px;font-size:12px;color:#007cba;font-weight:600;"></div>
+    </div>
+
+  </div>
+
+  <!-- ── Match Threshold ── -->
+  <div style="display:flex;align-items:center;gap:16px;margin-bottom:18px;flex-wrap:wrap;">
+    <div style="font-size:13px;font-weight:600;color:#555;">Match sensitivity:</div>
+    <label style="font-size:12px;cursor:pointer;"><input type="radio" name="sensitivity" value="strict" style="margin-right:4px;">Strict (fewer matches)</label>
+    <label style="font-size:12px;cursor:pointer;"><input type="radio" name="sensitivity" value="normal" checked style="margin-right:4px;">Normal</label>
+    <label style="font-size:12px;cursor:pointer;"><input type="radio" name="sensitivity" value="loose" style="margin-right:4px;">Loose (more matches)</label>
+  </div>
+
+  <div style="display:flex;gap:10px;margin-bottom:6px;">
+    <button onclick="runImpactAnalysis()">▶ Run Impact Analysis</button>
+    <button class="btn-grey" onclick="clearImpactAnalysis()">Clear</button>
+  </div>
+
+  <!-- ── Results ── -->
+  <div id="impact-results" style="display:none;margin-top:24px;">
+
+    <!-- Summary strip -->
+    <div id="impact-summary-strip" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px;"></div>
+
+    <!-- CREATE table -->
+    <div id="impact-create-section">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+        <h3 style="margin:0;color:#155724;">🆕 Topics to Create</h3>
+        <span id="create-count" class="issue-count-badge" style="background:#28a745;">0</span>
+        <button class="btn-sm btn-grey" onclick="exportImpactCSV('create')" style="margin-left:auto;">Export CSV</button>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="vtable" id="create-table">
+          <thead><tr>
+            <th style="width:36px;">#</th>
+            <th style="width:110px;">JIRA Key</th>
+            <th style="width:100px;">Type</th>
+            <th>JIRA Summary</th>
+            <th>Suggested Topic Title</th>
+            <th style="width:120px;">Confidence</th>
+          </tr></thead>
+          <tbody id="create-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div style="margin:24px 0 0;"></div>
+
+    <!-- UPDATE table -->
+    <div id="impact-update-section">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+        <h3 style="margin:0;color:#856404;">✏️ Topics to Update</h3>
+        <span id="update-count" class="issue-count-badge" style="background:#ffc107;color:#333;">0</span>
+        <button class="btn-sm btn-grey" onclick="exportImpactCSV('update')" style="margin-left:auto;">Export CSV</button>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="vtable" id="update-table">
+          <thead><tr>
+            <th style="width:36px;">#</th>
+            <th style="width:110px;">JIRA Key</th>
+            <th style="width:100px;">Type</th>
+            <th>JIRA Summary</th>
+            <th>Matched Topic File</th>
+            <th style="width:120px;">Match Score</th>
+          </tr></thead>
+          <tbody id="update-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div style="margin-top:20px;">
+      <button class="btn-green" onclick="exportImpactCSV('all')">⬇ Export Full Report (CSV)</button>
+    </div>
+
+  </div><!-- /impact-results -->
+
+  <div id="impact-error" style="display:none;background:#ffeaea;border:1px solid #f5c6cb;padding:12px;border-radius:6px;font-size:13px;color:#721c24;margin-top:12px;"></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     TAB 3: CONTENT ANALYSIS
+     ═══════════════════════════════════════════════ -->
+<div id="contentAnalysis" class="section" style="display:none">
+
+  <h2>Content Analysis Tool</h2>
+  <p style="font-size:13px;color:#666;margin-top:0;margin-bottom:14px;">
+    Analyzes content against Infor Writing Standards. Click any highlight to fix inline.
+  </p>
+
+  <textarea id="caInput" placeholder="Paste content here, or upload a .txt or .docx file below…"></textarea>
+  <input type="file" id="caFile" accept=".txt,.docx" style="margin:6px 0 0 0;">
+
+  <div style="margin-top:10px;">
+    <button onclick="runCA()">Analyze Content</button>
+    <button class="btn-grey" onclick="clearCA()">Clear</button>
+  </div>
+
+  <!-- ── RESULTS ── -->
+  <div id="ca-results" style="display:none;">
+
+    <!-- Summary badges -->
+    <h3 style="margin-top:24px;margin-bottom:6px;">Violations Summary</h3>
+    <div id="ca-badges" class="ca-summary"></div>
+
+    <!-- Legend -->
+    <div class="ca-legend">
+      <div class="ca-legend-item"><span class="leg-dot" style="background:#ffc7ce;border:1px solid #c0392b;"></span>Remove</div>
+      <div class="ca-legend-item"><span class="leg-dot" style="background:#fff3a6;border:1px solid #d4ac0d;"></span>Replace</div>
+      <div class="ca-legend-item"><span class="leg-dot" style="background:#ffdcb0;border:1px solid #e67e22;"></span>Review</div>
+      <div class="ca-legend-item"><span class="leg-dot" style="background:#bfe6ff;border:1px solid #2980b9;"></span>Structure</div>
+    </div>
+
+    <!-- Annotated Text -->
+    <h3 style="margin-bottom:4px;">
+      Annotated Text
+      <span style="font-size:12px;color:#888;font-weight:normal;"> — click a highlight to fix inline</span>
+    </h3>
+    <div class="annotated-hint"><span>💡</span> Click any colored word to open the inline fix panel.</div>
+    <div id="ca-annotated"></div>
+
+    <!-- Apply All / Download -->
+    <div style="margin-top:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <button class="btn-green" onclick="applyFixes()">⚡ Apply All Auto-fixes</button>
+      <span style="font-size:12px;color:#666;">Applies all safe replacements and removals. Structural issues require manual editing.</span>
+    </div>
+
+    <div id="ca-fixed-section" style="display:none;margin-top:16px;">
+      <h3 style="margin-bottom:6px;">Fixed Text</h3>
+      <div id="ca-fixed-output"></div>
+      <div style="margin-top:10px;">
+        <button onclick="copyFixed()">Copy Fixed Text</button>
+        <button onclick="downloadFixed()">Download as Word</button>
+      </div>
+    </div>
+
+    <!-- ── ISSUES TABLE ── -->
+    <div class="issues-header">
+      <h3 style="margin:0;">All Issues</h3>
+      <span class="issue-count-badge" id="vcount">0</span>
+      <span style="font-size:12px;color:#666;margin-left:4px;">Click a row to expand context &amp; suggestions</span>
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="vtable" id="vtable">
+        <thead>
+          <tr>
+            <th style="width:36px;">#</th>
+            <th style="width:100px;">Category</th>
+            <th style="width:120px;">Word / Phrase</th>
+            <th style="width:80px;">Role</th>
+            <th>Rule &amp; Suggestion</th>
+            <th style="width:130px;">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="vtbody"></tbody>
+      </table>
+    </div>
+
+  </div><!-- end ca-results -->
+</div><!-- end contentAnalysis -->
+
+
+<!-- ═══════════════════════════════════════════════
+     TAB 4: WRITE (lightweight Word processor)
+     ═══════════════════════════════════════════════ -->
+<div id="rewrite" class="section" style="display:none;padding:0;">
+
+  <!-- ── Menu bar ── -->
+  <div id="wr-menubar" style="display:flex;align-items:center;gap:0;background:#f3f3f3;border-bottom:1px solid #d0d0d0;padding:4px 10px;flex-wrap:wrap;">
+
+    <!-- File group -->
+    <div class="wr-menu-group">
+      <button class="wr-menu-btn" onclick="wrNew()" title="New document">New</button>
+      <div class="wr-sep"></div>
+      <button class="wr-menu-btn" onclick="wrOpen()" title="Open .txt or .docx">Open</button>
+      <input type="file" id="wr-open-file" accept=".txt,.docx" style="display:none;" onchange="wrFileOpened(this)">
+      <div class="wr-sep"></div>
+      <button class="wr-menu-btn" onclick="wrSaveDocx()" title="Save as .docx">⬇ Save .docx</button>
+      <button class="wr-menu-btn" onclick="wrSaveTxt()" title="Save as .txt">⬇ Save .txt</button>
+      <div class="wr-sep"></div>
+      <button class="wr-menu-btn" onclick="wrPrint()" title="Print">🖨 Print</button>
+    </div>
+
+    <div class="wr-sep-v"></div>
+
+    <!-- Style group -->
+    <div class="wr-menu-group">
+      <select id="wr-style" class="wr-select" onchange="wrApplyStyle(this.value)" title="Paragraph style">
+        <option value="p">Normal</option>
+        <option value="h1">Heading 1</option>
+        <option value="h2">Heading 2</option>
+        <option value="h3">Heading 3</option>
+        <option value="h4">Heading 4</option>
+        <option value="pre">Monospace</option>
+      </select>
+    </div>
+
+    <div class="wr-sep-v"></div>
+
+    <!-- Font group -->
+    <div class="wr-menu-group">
+      <select id="wr-font" class="wr-select" style="width:130px;" onchange="wrCmd('fontName',this.value)" title="Font family">
+        <option value="Calibri, sans-serif">Calibri</option>
+        <option value="Arial, sans-serif">Arial</option>
+        <option value="'Times New Roman', serif">Times New Roman</option>
+        <option value="Georgia, serif">Georgia</option>
+        <option value="'Courier New', monospace">Courier New</option>
+        <option value="Verdana, sans-serif">Verdana</option>
+        <option value="Tahoma, sans-serif">Tahoma</option>
+      </select>
+      <select id="wr-size" class="wr-select" style="width:56px;" onchange="wrSetSize(this.value)" title="Font size">
+        <option>8</option><option>9</option><option>10</option><option>11</option>
+        <option selected>12</option><option>14</option><option>16</option>
+        <option>18</option><option>20</option><option>24</option>
+        <option>28</option><option>32</option><option>36</option><option>48</option><option>72</option>
+      </select>
+    </div>
+
+    <div class="wr-sep-v"></div>
+
+    <!-- Format group -->
+    <div class="wr-menu-group">
+      <button class="wr-tb-btn" id="btn-bold"      onclick="wrCmd('bold')"          title="Bold (Ctrl+B)"><b>B</b></button>
+      <button class="wr-tb-btn" id="btn-italic"    onclick="wrCmd('italic')"        title="Italic (Ctrl+I)"><i>I</i></button>
+      <button class="wr-tb-btn" id="btn-underline" onclick="wrCmd('underline')"     title="Underline (Ctrl+U)"><u>U</u></button>
+      <button class="wr-tb-btn" id="btn-strike"    onclick="wrCmd('strikeThrough')" title="Strikethrough"><s>S</s></button>
+    </div>
+
+    <div class="wr-sep-v"></div>
+
+    <!-- Color group -->
+    <div class="wr-menu-group" style="align-items:center;">
+      <label class="wr-color-label" title="Text color">
+        <span style="font-size:11px;font-weight:600;color:#555;">A</span>
+        <input type="color" id="wr-txt-color" value="#000000" oninput="wrCmd('foreColor',this.value)" style="width:22px;height:18px;padding:0;border:none;cursor:pointer;background:none;">
+      </label>
+      <label class="wr-color-label" title="Highlight color">
+        <span style="font-size:11px;background:#ffff00;padding:1px 3px;border-radius:2px;font-weight:600;">H</span>
+        <input type="color" id="wr-hi-color" value="#ffff00" oninput="wrCmd('hiliteColor',this.value)" style="width:22px;height:18px;padding:0;border:none;cursor:pointer;background:none;">
+      </label>
+    </div>
+
+    <div class="wr-sep-v"></div>
+
+    <!-- Align group -->
+    <div class="wr-menu-group">
+      <button class="wr-tb-btn" id="btn-alignleft"    onclick="wrCmd('justifyLeft')"   title="Align left">&#8676;</button>
+      <button class="wr-tb-btn" id="btn-aligncenter"  onclick="wrCmd('justifyCenter')" title="Center">&#8677;</button>
+      <button class="wr-tb-btn" id="btn-alignright"   onclick="wrCmd('justifyRight')"  title="Align right">&#8678;</button>
+      <button class="wr-tb-btn" id="btn-alignjustify" onclick="wrCmd('justifyFull')"   title="Justify">&#8644;</button>
+    </div>
+
+    <div class="wr-sep-v"></div>
+
+    <!-- List group -->
+    <div class="wr-menu-group">
+      <button class="wr-tb-btn" onclick="wrCmd('insertUnorderedList')" title="Bullet list">&#8226; List</button>
+      <button class="wr-tb-btn" onclick="wrCmd('insertOrderedList')"   title="Numbered list">1. List</button>
+      <button class="wr-tb-btn" onclick="wrCmd('outdent')"  title="Decrease indent">&#8676;&#8592;</button>
+      <button class="wr-tb-btn" onclick="wrCmd('indent')"   title="Increase indent">&#8594;&#8677;</button>
+    </div>
+
+    <div class="wr-sep-v"></div>
+
+    <!-- Insert group -->
+    <div class="wr-menu-group">
+      <button class="wr-tb-btn" onclick="wrInsertTable()" title="Insert table">⊞ Table</button>
+      <button class="wr-tb-btn" onclick="wrInsertHR()"    title="Insert horizontal rule">— Rule</button>
+      <button class="wr-tb-btn" onclick="wrInsertLink()"  title="Insert hyperlink">🔗 Link</button>
+    </div>
+
+    <div class="wr-sep-v"></div>
+
+    <!-- Undo/Redo -->
+    <div class="wr-menu-group">
+      <button class="wr-tb-btn" onclick="wrCmd('undo')" title="Undo (Ctrl+Z)">↩</button>
+      <button class="wr-tb-btn" onclick="wrCmd('redo')" title="Redo (Ctrl+Y)">↪</button>
+    </div>
+
+    <div class="wr-sep-v"></div>
+
+    <!-- Find & Replace -->
+    <div class="wr-menu-group">
+      <button class="wr-tb-btn" onclick="wrToggleFindBar()" title="Find &amp; Replace">🔍 Find</button>
+    </div>
+
+  </div><!-- /menubar -->
+
+  <!-- ── Find & Replace bar ── -->
+  <div id="wr-findbar" style="display:none;background:#fffae6;border-bottom:1px solid #e6d96e;padding:6px 12px;display:none;gap:8px;align-items:center;flex-wrap:wrap;">
+    <input id="wr-find-input"    type="text" placeholder="Find…"        style="padding:4px 8px;border:1px solid #ccc;border-radius:4px;font-size:13px;width:160px;">
+    <input id="wr-replace-input" type="text" placeholder="Replace with…" style="padding:4px 8px;border:1px solid #ccc;border-radius:4px;font-size:13px;width:160px;">
+    <button class="btn-sm" onclick="wrFindNext()"   style="background:#007cba;color:#fff;">▶ Find</button>
+    <button class="btn-sm" onclick="wrReplaceOne()" style="background:#28a745;color:#fff;">Replace</button>
+    <button class="btn-sm" onclick="wrReplaceAll()" style="background:#28a745;color:#fff;">Replace All</button>
+    <span id="wr-find-msg" style="font-size:12px;color:#888;"></span>
+    <button class="btn-sm btn-grey" onclick="wrCloseFindBar()" style="margin-left:auto;">✕ Close</button>
+  </div>
+
+  <!-- ── Page canvas ── -->
+  <div id="wr-canvas" style="background:#e8e8e8;padding:28px 0;min-height:600px;overflow-y:auto;">
+    <div id="wr-page"
+      contenteditable="true"
+      spellcheck="true"
+      style="background:#fff;width:794px;min-height:1123px;margin:0 auto;
+             padding:96px 96px;
+             box-shadow:0 2px 12px rgba(0,0,0,.18);
+             font-family:Calibri,sans-serif;font-size:12pt;line-height:1.5;
+             color:#1a1a1a;outline:none;word-wrap:break-word;"
+      oninput="wrUpdate()"
+      onkeydown="wrKeyDown(event)"
+      onmouseup="wrUpdateToolbarState()"
+      onkeyup="wrUpdateToolbarState()">
+      <p><br></p>
+    </div>
+  </div>
+
+  <!-- ── Status bar ── -->
+  <div id="wr-status" style="background:#f3f3f3;border-top:1px solid #d0d0d0;padding:4px 16px;font-size:12px;color:#666;display:flex;gap:24px;flex-wrap:wrap;">
+    <span>Words: <strong id="wr-wc">0</strong></span>
+    <span>Characters: <strong id="wr-cc">0</strong></span>
+    <span>Paragraphs: <strong id="wr-pc">0</strong></span>
+    <span id="wr-saved-msg" style="margin-left:auto;color:#28a745;font-weight:600;display:none;">✓ Saved</span>
+  </div>
+
+  <!-- ── Insert Table dialog ── -->
+  <div id="wr-table-dialog" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+       background:#fff;border:1px solid #ccc;border-radius:8px;padding:20px 24px;z-index:9999;box-shadow:0 4px 24px rgba(0,0,0,.2);min-width:240px;">
+    <h4 style="margin:0 0 14px;">Insert Table</h4>
+    <div style="display:flex;gap:16px;margin-bottom:12px;">
+      <label style="font-size:13px;">Rows <input type="number" id="wr-tbl-rows" value="3" min="1" max="20" style="width:56px;margin-left:6px;padding:3px 6px;border:1px solid #ccc;border-radius:4px;"></label>
+      <label style="font-size:13px;">Cols <input type="number" id="wr-tbl-cols" value="3" min="1" max="10" style="width:56px;margin-left:6px;padding:3px 6px;border:1px solid #ccc;border-radius:4px;"></label>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      <button class="btn-sm btn-grey" onclick="wrCloseTableDialog()">Cancel</button>
+      <button class="btn-sm" style="background:#007cba;color:#fff;" onclick="wrDoInsertTable()">Insert</button>
+    </div>
+  </div>
+  <div id="wr-table-overlay" style="display:none;position:fixed;inset:0;z-index:9998;" onclick="wrCloseTableDialog()"></div>
+
+</div><!-- end rewrite/Write tab -->
+
+<!-- ════════════════════════════════════════════════════════
+     JAVASCRIPT
+     ════════════════════════════════════════════════════════ -->
+
+<script src="lib/mammoth.min.js"></script>
+<script src="lib/docx.min.js"></script>
+<script src="lib/FileSaver.min.js"></script>
+<script src="lib/jszip.min.js"></script>
+<script src="lib/xlsx.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
