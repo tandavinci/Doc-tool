@@ -21,6 +21,14 @@ function openTab(id, e) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   e.target.classList.add('active');
   document.getElementById(id).style.display = 'block';
+
+  // Restore editor focus when switching back to Initial Draft tab
+  if (id === 'rewrite') {
+    setTimeout(function() {
+      var page = document.getElementById('wr-page');
+      if (page) page.focus();
+    }, 50);
+  }
 }
 
 /* ============================================================

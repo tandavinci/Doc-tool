@@ -398,7 +398,7 @@
 
     <!-- Send to Analysis -->
     <div class="wr-menu-group">
-      <button class="wr-tb-btn" onmousedown="event.preventDefault()" onclick="wrSendToAnalysis()" title="Send content to Content Analysis tab" style="color:var(--accent,#4f46e5);font-weight:600;">📝 Analyze</button>
+      <button class="wr-tb-btn" onclick="wrSendToAnalysis()" title="Send content to Content Analysis tab" style="color:var(--accent,#4f46e5);font-weight:600;">📝 Analyze</button>
     </div>
 
   </div><!-- /menubar -->
@@ -417,7 +417,7 @@
   <!-- ── Page canvas + Comments panel ── -->
   <div class="wr-editor-layout">
     <div class="wr-editor-main">
-      <div id="wr-canvas" style="background:#e8e8e8;padding:28px 0;min-height:600px;overflow-y:auto;">
+      <div id="wr-canvas" style="background:#e8e8e8;padding:28px 0;min-height:600px;overflow-y:auto;" onclick="document.getElementById('wr-page').focus()">
         <div id="wr-page"
           contenteditable="true"
           spellcheck="true"
