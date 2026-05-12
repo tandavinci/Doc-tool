@@ -382,6 +382,13 @@
       <button class="wr-tb-btn" onclick="wrToggleFindBar()" title="Find &amp; Replace">🔍 Find</button>
     </div>
 
+    <div class="wr-sep-v"></div>
+
+    <!-- Comment -->
+    <div class="wr-menu-group">
+      <button class="wr-tb-btn" id="wr-comment-btn" onmousedown="event.preventDefault()" onclick="wrAddComment()" title="Add comment to selected text">💬 Comment</button>
+    </div>
+
   </div><!-- /menubar -->
 
   <!-- ── Find & Replace bar ── -->
@@ -395,23 +402,38 @@
     <button class="btn-sm btn-grey" onclick="wrCloseFindBar()" style="margin-left:auto;">✕ Close</button>
   </div>
 
-  <!-- ── Page canvas ── -->
-  <div id="wr-canvas" style="background:#e8e8e8;padding:28px 0;min-height:600px;overflow-y:auto;">
-    <div id="wr-page"
-      contenteditable="true"
-      spellcheck="true"
-      style="background:#fff;width:794px;min-height:1123px;margin:0 auto;
-             padding:96px 96px;
-             box-shadow:0 2px 12px rgba(0,0,0,.18);
-             font-family:Calibri,sans-serif;font-size:12pt;line-height:1.5;
-             color:#1a1a1a;outline:none;word-wrap:break-word;"
-      oninput="wrUpdate()"
-      onkeydown="wrKeyDown(event)"
-      onmouseup="wrUpdateToolbarState()"
-      onkeyup="wrUpdateToolbarState()">
-      <p><br></p>
+  <!-- ── Page canvas + Comments panel ── -->
+  <div class="wr-editor-layout">
+    <div class="wr-editor-main">
+      <div id="wr-canvas" style="background:#e8e8e8;padding:28px 0;min-height:600px;overflow-y:auto;">
+        <div id="wr-page"
+          contenteditable="true"
+          spellcheck="true"
+          style="background:#fff;width:794px;min-height:1123px;margin:0 auto;
+                 padding:96px 96px;
+                 box-shadow:0 2px 12px rgba(0,0,0,.18);
+                 font-family:Calibri,sans-serif;font-size:12pt;line-height:1.5;
+                 color:#1a1a1a;outline:none;word-wrap:break-word;"
+          oninput="wrUpdate()"
+          onkeydown="wrKeyDown(event)"
+          onmouseup="wrUpdateToolbarState(); wrCheckSelection()"
+          onkeyup="wrUpdateToolbarState()">
+          <p><br></p>
+        </div>
+      </div>
+    </div>
+    <div class="wr-comments-panel" id="wr-comments-panel">
+      <div class="wr-comments-header">
+        <span class="wr-comments-title">Comments</span>
+        <span class="wr-comments-count" id="wr-comments-count">0</span>
+      </div>
+      <div class="wr-comments-list" id="wr-comments-list">
+        <div class="wr-comments-empty" id="wr-comments-empty">No comments yet. Select text and click "Add Comment" to start.</div>
+      </div>
     </div>
   </div>
+
+  <!-- Floating Add Comment button — REMOVED, using toolbar instead -->
 
   <!-- ── Status bar ── -->
   <div id="wr-status" style="background:#f3f3f3;border-top:1px solid #d0d0d0;padding:4px 16px;font-size:12px;color:#666;display:flex;gap:24px;flex-wrap:wrap;">

@@ -2152,3 +2152,127 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 });
 
+
+/* ============================================================
+   WRITE EDITOR — COMMENTS FEATURE
+   Lightweight in-memory annotation system.
+   ============================================================ */
+
+var _wrComments = []; // { id, text, snippet, range serialization }
+var _wrCommentId = 0;
+
+/* ── Show/hide floating "Add Comment" button — REMOVED ── */
+/* Comments are now triggered from the toolbar button only. */
+function wrCheckSelection() {
+  /* no-op: kept for compatibility with onmouseup handler */
+}
+
+/* ── Add a comment (triggered from toolbar) ── */
+function wrAddComment() {
+  var sel = window.getSelection();
+  var page = document.getElementById('wr-page');
+  if (!sel || sel.isCollapsed || !sel.rangeCount || !page.contains(sel.anchorNode)) {
+    alert('Select text in the editor before adding a comment.');
+    return;
+  }
+  var range = sel.getRangeAt(0);
+  var snippet = sel.toString().trim();
+  if (!snippet) { alert('Select text in the editor before adding a comment.'); return; }
+
+  var commentText = prompt('Add a comment:', '');
+  if (commentText === null || commentText.trim() === '') return;
+
+  _wrCommentId++;
+  var id = 'wrc-' + _wrCommentId;
+
+  // Wrap selected text in a highlight span
+  var mark = document.createElement('span');
+  mark.className = 'wr-comment-highlight';
+  mark.setAttribute('data-comment-id', id);
+  mark.title = commentText.trim();
+  try {
+    range.surroundContents(mark);
+  } catch (e) {
+    // surroundContents fails if selection crosses element boundaries
+    mark.textContent = snippet;
+    range.deleteContents();
+    range.insertNode(mark);
+  }
+
+  // Store comment
+  _wrComments.push({
+    id: id,
+    text: commentText.trim(),
+    snippet: snippet.slice(0, 60),
+    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  });
+
+  // Clear selection
+  sel.removeAllRanges();
+
+  wrRenderComments();
+  wrUpdate();
+}
+
+/* ── Render comments list ── */
+function wrRenderComments() {
+  var listEl = document.getElementById('wr-comments-list');
+  var countEl = document.getElementById('wr-comments-count');
+  var emptyEl = document.getElementById('wr-comments-empty');
+  if (!listEl) return;
+
+  countEl.textContent = _wrComments.length;
+
+  if (_wrComments.length === 0) {
+    listEl.innerHTML = '';
+    listEl.appendChild(emptyEl);
+    emptyEl.style.display = 'block';
+    return;
+  }
+
+  emptyEl.style.display = 'none';
+  var html = '';
+  for (var i = 0; i < _wrComments.length; i++) {
+    var c = _wrComments[i];
+    html += '<div class="wr-comment-card" onclick="wrNavigateToComment(\'' + c.id + '\')">' +
+      '<div class="wr-comment-snippet">"' + hEsc(c.snippet) + '"</div>' +
+      '<div class="wr-comment-text">' + hEsc(c.text) + '</div>' +
+      '<div class="wr-comment-footer">' +
+        '<span class="wr-comment-time">' + c.time + '</span>' +
+        '<button class="wr-comment-delete" onclick="wrDeleteComment(\'' + c.id + '\');event.stopPropagation();">Remove</button>' +
+      '</div>' +
+    '</div>';
+  }
+  listEl.innerHTML = html;
+}
+
+/* ── Navigate to a comment highlight ── */
+function wrNavigateToComment(id) {
+  var el = document.querySelector('[data-comment-id="' + id + '"]');
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.classList.add('focused');
+  setTimeout(function() { el.classList.remove('focused'); }, 1500);
+}
+
+/* ── Delete a comment ── */
+function wrDeleteComment(id) {
+  // Remove highlight from editor
+  var el = document.querySelector('[data-comment-id="' + id + '"]');
+  if (el) {
+    // Unwrap: replace span with its text content
+    var parent = el.parentNode;
+    while (el.firstChild) {
+      parent.insertBefore(el.firstChild, el);
+    }
+    parent.removeChild(el);
+    parent.normalize(); // merge adjacent text nodes
+  }
+
+  // Remove from array
+  _wrComments = _wrComments.filter(function(c) { return c.id !== id; });
+  wrRenderComments();
+  wrUpdate();
+}
+
+/* ── Hide comment button — no-op (floating button removed) ── */
