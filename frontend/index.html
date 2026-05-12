@@ -193,56 +193,61 @@
   <div id="ca-results" style="display:none;">
 
     <!-- Summary badges -->
-    <h3 style="margin-top:24px;margin-bottom:6px;">Violations Summary</h3>
     <div id="ca-badges" class="ca-summary"></div>
 
-    <!-- Legend -->
-    <div class="ca-legend">
-      <div class="ca-legend-item"><span class="leg-dot" style="background:#ffc7ce;border:1px solid #c0392b;"></span>Remove</div>
-      <div class="ca-legend-item"><span class="leg-dot" style="background:#fff3a6;border:1px solid #d4ac0d;"></span>Replace</div>
-      <div class="ca-legend-item"><span class="leg-dot" style="background:#ffdcb0;border:1px solid #e67e22;"></span>Review</div>
-      <div class="ca-legend-item"><span class="leg-dot" style="background:#bfe6ff;border:1px solid #2980b9;"></span>Structure</div>
-    </div>
+    <!-- Grid layout: annotated text left, violations panel right -->
+    <div class="ca-grid">
 
-    <!-- Annotated Text -->
-    <h3 style="margin-bottom:4px;">
-      Annotated Text
-      <span style="font-size:12px;color:#888;font-weight:normal;"> — click a highlight to fix inline</span>
-    </h3>
-    <div class="annotated-hint"><span>💡</span> Click any colored word to open the inline fix panel.</div>
-    <div id="ca-annotated"></div>
+      <!-- LEFT: Annotated text + actions -->
+      <div class="ca-grid-left">
+        <!-- Legend -->
+        <div class="ca-legend">
+          <div class="ca-legend-item"><span class="leg-dot" style="background:#fee2e2;border:1px solid #ef4444;"></span>Remove</div>
+          <div class="ca-legend-item"><span class="leg-dot" style="background:#fef3c7;border:1px solid #d97706;"></span>Replace</div>
+          <div class="ca-legend-item"><span class="leg-dot" style="background:#ffedd5;border:1px solid #ea580c;"></span>Review</div>
+          <div class="ca-legend-item"><span class="leg-dot" style="background:#dbeafe;border:1px solid #3b82f6;"></span>Structure</div>
+        </div>
 
-    <!-- Apply All / Download -->
-    <div style="margin-top:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-      <button class="btn-green" onclick="applyFixes()">⚡ Apply All Auto-fixes</button>
-      <span style="font-size:12px;color:#666;">Applies all safe replacements and removals. Structural issues require manual editing.</span>
-    </div>
+        <!-- Annotated Text -->
+        <div class="annotated-hint"><span>💡</span> Click any colored word to open the inline fix panel.</div>
+        <div id="ca-annotated"></div>
 
-    <div id="ca-fixed-section" style="display:none;margin-top:16px;">
-      <h3 style="margin-bottom:6px;">Fixed Text</h3>
-      <div id="ca-fixed-output"></div>
-      <div style="margin-top:10px;">
-        <button onclick="copyFixed()">Copy Fixed Text</button>
-        <button onclick="downloadFixed()">Download as Word</button>
+        <!-- Apply All / Download -->
+        <div style="margin-top:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <button class="btn-green" onclick="applyFixes()">⚡ Apply All Auto-fixes</button>
+          <span style="font-size:12px;color:#666;">Applies all safe replacements and removals.</span>
+        </div>
+
+        <div id="ca-fixed-section" style="display:none;margin-top:16px;">
+          <h3 style="margin-bottom:6px;">Fixed Text</h3>
+          <div id="ca-fixed-output"></div>
+          <div style="margin-top:10px;">
+            <button onclick="copyFixed()">Copy Fixed Text</button>
+            <button onclick="downloadFixed()">Download as Word</button>
+          </div>
+        </div>
       </div>
-    </div>
 
-    <!-- ── ISSUES TABLE ── -->
-    <div class="issues-header">
-      <h3 style="margin:0;">All Issues</h3>
-      <span class="issue-count-badge" id="vcount">0</span>
-      <span style="font-size:12px;color:#666;margin-left:4px;">Click a row to expand context &amp; suggestions</span>
-    </div>
-    <div style="overflow-x:auto;">
+      <!-- RIGHT: Docked violations panel -->
+      <div class="ca-grid-right">
+        <div class="ca-panel">
+          <div class="ca-panel-header">
+            <h3 style="margin:0;font-size:14px;">Issues</h3>
+            <span class="issue-count-badge" id="vcount">0</span>
+          </div>
+          <div class="ca-panel-filters" id="ca-panel-filters"></div>
+          <div class="ca-panel-list" id="ca-panel-list"></div>
+        </div>
+      </div>
+
+    </div><!-- end ca-grid -->
+
+    <!-- Hidden table for legacy compatibility (used by existing buildVTable) -->
+    <div style="display:none;">
       <table class="vtable" id="vtable">
         <thead>
           <tr>
-            <th style="width:36px;">#</th>
-            <th style="width:100px;">Category</th>
-            <th style="width:120px;">Word / Phrase</th>
-            <th style="width:80px;">Role</th>
-            <th>Rule &amp; Suggestion</th>
-            <th style="width:130px;">Actions</th>
+            <th>#</th><th>Category</th><th>Word / Phrase</th><th>Role</th><th>Rule</th><th>Actions</th>
           </tr>
         </thead>
         <tbody id="vtbody"></tbody>

@@ -13,6 +13,7 @@ Process entry point. Handles all communication and request routing.
 import io
 import json
 import logging
+import os
 import signal
 import sys
 import time
@@ -24,9 +25,10 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", newline="")
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8")
 
 # Configure logging to stderr only
+log_level = logging.DEBUG if os.environ.get("BACKEND_DEBUG") else logging.INFO
 logging.basicConfig(
     stream=sys.stderr,
-    level=logging.INFO,
+    level=log_level,
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
@@ -76,6 +78,7 @@ def error_response(request_id, code, message, details=""):
 
 def handle_analyze(request_id, payload):
     """Handle content analysis request."""
+    logger.debug(f"[DEBUG] Action 'analyze' received: id={request_id}, text_len={len(payload.get('text', ''))}")
     text = payload.get("text", "")
     if not text:
         error_response(request_id, "INVALID_REQUEST", "Missing 'text' in payload")
@@ -89,6 +92,7 @@ def handle_analyze(request_id, payload):
 
 def handle_rewrite(request_id, payload):
     """Handle rewrite request."""
+    logger.debug(f"[DEBUG] Action 'rewrite' received: id={request_id}, text_len={len(payload.get('text', ''))}")
     text = payload.get("text", "")
     if not text:
         error_response(request_id, "INVALID_REQUEST", "Missing 'text' in payload")
@@ -102,6 +106,7 @@ def handle_rewrite(request_id, payload):
 
 def handle_convert_dita(request_id, payload):
     """Handle DITA conversion request."""
+    logger.debug(f"[DEBUG] Action 'convert_dita' received: id={request_id}, format={payload.get('format', 'concept')}")
     text = payload.get("text", "")
     fmt = payload.get("format", "concept")
     if not text:
@@ -116,6 +121,7 @@ def handle_convert_dita(request_id, payload):
 
 def handle_impact_analyze(request_id, payload):
     """Handle impact analysis request."""
+    logger.debug(f"[DEBUG] Action 'impact_analyze' received: id={request_id}, jira_count={len(payload.get('jiraItems', []))}, topic_count={len(payload.get('ditaTopics', []))}")
     jira_items = payload.get("jiraItems", [])
     dita_topics = payload.get("ditaTopics", [])
     threshold = payload.get("threshold", 0.18)

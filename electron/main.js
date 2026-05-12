@@ -54,6 +54,7 @@ function spawnBackend() {
       if (id && pendingRequests.has(id)) {
         const { resolve } = pendingRequests.get(id);
         pendingRequests.delete(id);
+        if (DEBUG) console.log(`[main][DEBUG] ← Received from backend: id=${id}, success=${response.success}`);
         resolve(response);
       }
     } catch (e) {
@@ -93,6 +94,9 @@ function spawnBackend() {
   });
 }
 
+const REQUEST_TIMEOUT_MS = 30000; // 30 second timeout for backend requests
+const DEBUG = process.argv.includes('--dev');
+
 function sendToBackend(action, payload) {
   return new Promise((resolve, reject) => {
     if (!pythonProcess || !backendReady) {
@@ -104,10 +108,22 @@ function sendToBackend(action, payload) {
     const id = `req-${String(requestId).padStart(4, '0')}`;
     const request = { id, action, payload };
 
-    pendingRequests.set(id, { resolve, reject });
+    // Timeout protection for stalled requests
+    const timer = setTimeout(() => {
+      if (pendingRequests.has(id)) {
+        pendingRequests.delete(id);
+        reject(new Error(`Backend request timed out: ${action} (${id})`));
+      }
+    }, REQUEST_TIMEOUT_MS);
+
+    pendingRequests.set(id, {
+      resolve: (response) => { clearTimeout(timer); resolve(response); },
+      reject: (err) => { clearTimeout(timer); reject(err); },
+    });
 
     // Write JSON + newline to stdin
     const line = JSON.stringify(request) + '\n';
+    if (DEBUG) console.log(`[main][DEBUG] → Sending to backend: id=${id}, action=${action}`);
     pythonProcess.stdin.write(line, 'utf-8');
   });
 }
@@ -144,23 +160,39 @@ function shutdownBackend() {
 }
 
 // =============================================================================
-// IPC HANDLERS
+// IPC HANDLERS — wrap errors so renderer always gets a structured response
 // =============================================================================
 
 ipcMain.handle('analyze', async (event, text) => {
-  return sendToBackend('analyze', { text });
+  try {
+    return await sendToBackend('analyze', { text });
+  } catch (e) {
+    return { id: null, success: false, error: { code: 'IPC_ERROR', message: e.message } };
+  }
 });
 
 ipcMain.handle('rewrite', async (event, text) => {
-  return sendToBackend('rewrite', { text });
+  try {
+    return await sendToBackend('rewrite', { text });
+  } catch (e) {
+    return { id: null, success: false, error: { code: 'IPC_ERROR', message: e.message } };
+  }
 });
 
 ipcMain.handle('convert-dita', async (event, text, format) => {
-  return sendToBackend('convert_dita', { text, format });
+  try {
+    return await sendToBackend('convert_dita', { text, format });
+  } catch (e) {
+    return { id: null, success: false, error: { code: 'IPC_ERROR', message: e.message } };
+  }
 });
 
 ipcMain.handle('impact-analyze', async (event, jiraItems, ditaTopics, threshold) => {
-  return sendToBackend('impact_analyze', { jiraItems, ditaTopics, threshold });
+  try {
+    return await sendToBackend('impact_analyze', { jiraItems, ditaTopics, threshold });
+  } catch (e) {
+    return { id: null, success: false, error: { code: 'IPC_ERROR', message: e.message } };
+  }
 });
 
 // =============================================================================

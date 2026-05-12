@@ -1254,6 +1254,107 @@ document.addEventListener('click', function(e) {
    ═══════════════════════════════════════════════════════════ */
 var _text = '', _violations = [], _fixed = '';
 var _ignoredSet = new Set();
+var _caPanelFilter = 'All';
+
+/* ── Docked Panel: Category Filters ── */
+function buildPanelFilters() {
+  var filtersEl = document.getElementById('ca-panel-filters');
+  if (!filtersEl) return;
+
+  // Count by category
+  var counts = { 'All': 0 };
+  for (var i = 0; i < _violations.length; i++) {
+    if (_ignoredSet.has(i)) continue;
+    var cat = _violations[i].cat;
+    counts[cat] = (counts[cat] || 0) + 1;
+    counts['All']++;
+  }
+
+  var cats = ['All', 'Grammar', 'Word Usage', 'Pronouns', 'Style & Tone', 'Punctuation', 'Numbers', 'Translation', 'UI Conventions'];
+  var html = '';
+  for (var c = 0; c < cats.length; c++) {
+    var catName = cats[c];
+    var count = counts[catName] || 0;
+    if (catName !== 'All' && count === 0) continue;
+    var activeClass = (_caPanelFilter === catName) ? ' active' : '';
+    html += '<button class="ca-filter-btn' + activeClass + '" onclick="setCAPanelFilter(\'' + catName + '\')">' +
+            catName + ' (' + count + ')</button>';
+  }
+  filtersEl.innerHTML = html;
+}
+
+function setCAPanelFilter(cat) {
+  _caPanelFilter = cat;
+  buildPanelFilters();
+  buildPanelCards(cat);
+}
+
+/* ── Docked Panel: Issue Cards ── */
+function buildPanelCards(filterCat) {
+  var listEl = document.getElementById('ca-panel-list');
+  if (!listEl) return;
+
+  var catClsMap = {
+    'Grammar':'badge-grammar','Word Usage':'badge-wordusage',
+    'Pronouns':'badge-pronouns','Style & Tone':'badge-style',
+    'Punctuation':'badge-punctuation','Numbers':'badge-numbers',
+    'Translation':'badge-translation','UI Conventions':'badge-uiconv'
+  };
+  var roleMap = {
+    'ca-remove':  {label:'Remove',  cls:'role-remove'},
+    'ca-replace': {label:'Replace', cls:'role-replace'},
+    'ca-warn':    {label:'Review',  cls:'role-warn'},
+    'ca-structure':{label:'Structure',cls:'role-struct'}
+  };
+
+  var html = '';
+  for (var i = 0; i < _violations.length; i++) {
+    var v = _violations[i];
+    if (filterCat !== 'All' && v.cat !== filterCat) continue;
+
+    var ignored = _ignoredSet.has(i);
+    var ignoredClass = ignored ? ' ignored' : '';
+    var role = roleMap[v.color] || {label:'Review', cls:'role-warn'};
+    var catCls = catClsMap[v.cat] || 'badge-total';
+    var matchText = hEsc((v.matchText || '').slice(0, 30));
+    var msg = hEsc((v.msg || '').slice(0, 80));
+
+    // Action buttons
+    var actions = '';
+    if (!ignored) {
+      if (v.fix !== undefined) {
+        actions += '<button class="btn-sm btn-green" onclick="applyOneFix(' + i + ',\'' + escJs(v.fix) + '\');event.stopPropagation();">✓ Fix</button>';
+      } else {
+        actions += '<button class="btn-sm" style="background:var(--accent);" onclick="showFixPopup(' + i + ',document.querySelector(\'[data-vidx=\\x22' + i + '\\x22]\'),event);event.stopPropagation();">💡</button>';
+      }
+      actions += '<button class="btn-sm btn-grey" onclick="ignoreFix(' + i + ');event.stopPropagation();">✗</button>';
+    }
+
+    html += '<div class="ca-issue-card' + ignoredClass + '" data-vidx="' + i + '" onclick="panelCardClick(' + i + ')">' +
+      '<div class="ca-issue-card-top">' +
+        '<span class="ca-issue-card-match">' + matchText + '</span>' +
+        '<span class="ca-issue-card-cat ca-badge ' + catCls + '">' + hEsc(v.cat) + '</span>' +
+      '</div>' +
+      '<div class="ca-issue-card-msg">' + msg + '</div>' +
+      '<div class="ca-issue-card-actions">' + actions + '</div>' +
+    '</div>';
+  }
+
+  if (!html) {
+    html = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;">No issues found.</div>';
+  }
+  listEl.innerHTML = html;
+}
+
+/* ── Panel card click: highlight corresponding text ── */
+function panelCardClick(vidx) {
+  var el = document.querySelector('#ca-annotated [data-vidx="' + vidx + '"]');
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.style.boxShadow = '0 0 0 3px rgba(79,70,229,.4)';
+    setTimeout(function() { el.style.boxShadow = ''; }, 1500);
+  }
+}
 
 function refreshCADisplay() {
   document.getElementById('ca-annotated').innerHTML = buildAnnotated(_text, _violations);
@@ -1265,6 +1366,10 @@ function refreshCADisplay() {
     document.getElementById('vlist-toggle').textContent =
       'Hide Issues (' + active + ')'
   );
+
+  // Populate docked violations panel
+  buildPanelFilters();
+  buildPanelCards(_caPanelFilter);
 }
 
 function runCA() {
@@ -2038,5 +2143,12 @@ document.addEventListener('keydown', function(e) {
 /* ── Init on load ── */
 document.addEventListener('DOMContentLoaded', function() {
   wrUpdate();
+
+  // Listen for backend crash notifications (Electron only)
+  if (window.api && window.api.onBackendError) {
+    window.api.onBackendError(function(data) {
+      alert('Backend Error: ' + (data.message || 'Backend process is unavailable. Please restart the application.'));
+    });
+  }
 });
 
