@@ -526,9 +526,12 @@ input[type=file] { margin: 10px 0; }
   flex-shrink: 0;
   background: #f9fafb;
   border-left: 1px solid var(--border-light);
-  display: flex;
+  display: none;
   flex-direction: column;
   overflow: hidden;
+}
+.wr-comments-panel.has-comments {
+  display: flex;
 }
 .wr-comments-header {
   display: flex;

@@ -81,6 +81,13 @@ function _convertTaskLocal(text) {
 function xEsc(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
+function copyDitaXml() {
+  var xml = document.getElementById('xmlOutput').value;
+  if (!xml) { alert('No XML output to copy. Run a conversion first.'); return; }
+  navigator.clipboard.writeText(xml).then(function() {
+    alert('XML copied to clipboard.');
+  }).catch(function() { alert('Copy failed.'); });
+}
 
 /* ============================================================
    IMPACT ANALYZER  —  JIRA + DITA MAP
@@ -2122,6 +2129,89 @@ function wrInsertLink() {
   wrUpdate();
 }
 
+/* ── Send editor content to Content Analysis tab ── */
+function wrSendToAnalysis() {
+  var page = document.getElementById('wr-page');
+  var text = (page.innerText || '').trim();
+  if (!text) { alert('Editor is empty. Write or paste content first.'); return; }
+  var caInput = document.getElementById('caInput');
+  if (caInput.value.trim() && !confirm('Content Analysis already has text. Replace it?')) return;
+  caInput.value = text;
+  // Switch to Content Analysis tab
+  var caTab = document.querySelector('.tab[onclick*="contentAnalysis"]');
+  if (caTab) caTab.click();
+}
+
+/* ── Send Content Analysis text to Doc to DITA tab ── */
+function caSendToDita() {
+  // Priority: fixed text > current working text (_text with applied fixes) > raw input
+  var text = '';
+  if (_fixed) {
+    text = _fixed;
+  } else if (_text) {
+    text = _text;
+  } else {
+    text = document.getElementById('caInput').value.trim();
+  }
+  if (!text) { alert('No content to send. Run analysis or apply fixes first.'); return; }
+  var ditaInput = document.getElementById('docInput');
+  if (ditaInput.value.trim() && !confirm('Doc to DITA already has text. Replace it?')) return;
+  ditaInput.value = text;
+  var ditaTab = document.querySelector('.tab[onclick*="converter"]');
+  if (ditaTab) ditaTab.click();
+}
+
+/* ── Copy Content Analysis results to clipboard ── */
+function caCopyResults() {
+  var text = _fixed || _text || document.getElementById('caInput').value.trim();
+  if (!text) { alert('No content to copy.'); return; }
+  navigator.clipboard.writeText(text).then(function() {
+    alert('Results copied to clipboard.');
+  }).catch(function() { alert('Copy failed. Select and copy manually.'); });
+}
+
+/* ── Download Content Analysis results as .txt ── */
+function caDownloadResults() {
+  var original = document.getElementById('caInput').value.trim();
+  if (!original && !_text) { alert('No content to download.'); return; }
+
+  var lines = [];
+  lines.push('=== CONTENT ANALYSIS RESULTS ===');
+  lines.push('');
+  lines.push('--- ORIGINAL TEXT ---');
+  lines.push(original || _text);
+  lines.push('');
+
+  // Violations summary
+  if (_violations && _violations.length) {
+    lines.push('--- VIOLATIONS SUMMARY ---');
+    lines.push('Total issues: ' + _violations.length);
+    var cats = {};
+    _violations.forEach(function(v) { cats[v.cat] = (cats[v.cat] || 0) + 1; });
+    Object.keys(cats).forEach(function(c) { lines.push('  ' + c + ': ' + cats[c]); });
+    lines.push('');
+    lines.push('--- ISSUES ---');
+    _violations.forEach(function(v, i) {
+      lines.push((i+1) + '. [' + v.cat + '] "' + (v.matchText || '').slice(0,40) + '" — ' + v.msg);
+    });
+    lines.push('');
+  }
+
+  // Fixed text
+  if (_fixed) {
+    lines.push('--- FIXED TEXT ---');
+    lines.push(_fixed);
+    lines.push('');
+  } else if (_text && _text !== original) {
+    lines.push('--- CURRENT TEXT (with applied fixes) ---');
+    lines.push(_text);
+    lines.push('');
+  }
+
+  var blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+  saveAs(blob, 'content-analysis-results.txt');
+}
+
 /* ── Keyboard shortcut: Ctrl+S → save docx ── */
 document.addEventListener('keydown', function(e) {
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
@@ -2171,19 +2261,33 @@ function wrCheckSelection() {
 function wrAddComment() {
   var sel = window.getSelection();
   var page = document.getElementById('wr-page');
-  if (!sel || sel.isCollapsed || !sel.rangeCount || !page.contains(sel.anchorNode)) {
+
+  // Check selection exists and is within editor
+  if (!sel || sel.isCollapsed || !sel.rangeCount) {
     alert('Select text in the editor before adding a comment.');
     return;
   }
-  var range = sel.getRangeAt(0);
+  var anchorNode = sel.anchorNode;
+  if (!anchorNode || !page.contains(anchorNode)) {
+    alert('Select text in the editor before adding a comment.');
+    return;
+  }
+
+  var range = sel.getRangeAt(0).cloneRange();
   var snippet = sel.toString().trim();
   if (!snippet) { alert('Select text in the editor before adding a comment.'); return; }
 
-  var commentText = prompt('Add a comment:', '');
-  if (commentText === null || commentText.trim() === '') return;
+  // Use prompt for comment text — store range first since prompt may clear selection
+  var commentText = window.prompt('Add a comment:');
+  if (!commentText || !commentText.trim()) return;
 
   _wrCommentId++;
   var id = 'wrc-' + _wrCommentId;
+
+  // Restore selection from cloned range (prompt clears it in some browsers)
+  sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
 
   // Wrap selected text in a highlight span
   var mark = document.createElement('span');
@@ -2208,8 +2312,10 @@ function wrAddComment() {
   });
 
   // Clear selection
-  sel.removeAllRanges();
+  window.getSelection().removeAllRanges();
 
+  // Show panel and render
+  document.getElementById('wr-comments-panel').classList.add('has-comments');
   wrRenderComments();
   wrUpdate();
 }
@@ -2260,17 +2366,22 @@ function wrDeleteComment(id) {
   // Remove highlight from editor
   var el = document.querySelector('[data-comment-id="' + id + '"]');
   if (el) {
-    // Unwrap: replace span with its text content
     var parent = el.parentNode;
     while (el.firstChild) {
       parent.insertBefore(el.firstChild, el);
     }
     parent.removeChild(el);
-    parent.normalize(); // merge adjacent text nodes
+    parent.normalize();
   }
 
   // Remove from array
   _wrComments = _wrComments.filter(function(c) { return c.id !== id; });
+
+  // Hide panel if no comments left
+  if (_wrComments.length === 0) {
+    document.getElementById('wr-comments-panel').classList.remove('has-comments');
+  }
+
   wrRenderComments();
   wrUpdate();
 }

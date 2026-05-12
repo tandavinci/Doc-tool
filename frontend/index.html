@@ -40,9 +40,10 @@
 <!-- TABS -->
 <div class="tabs">
   <span class="tab active" onclick="openTab('converter',event)">DOC to DITA</span>
-  <span class="tab"        onclick="openTab('analyzer',event)">Impact Analyzer</span>
+  <!-- Temporarily disabled — reserved for future release -->
+  <!-- <span class="tab"        onclick="openTab('analyzer',event)">Impact Analyzer</span> -->
   <span class="tab"        onclick="openTab('contentAnalysis',event)">Content Analysis</span>
-  <span class="tab"        onclick="openTab('rewrite',event)">Write</span>
+  <span class="tab"        onclick="openTab('rewrite',event)">Initial Draft</span>
 </div>
 
 <!-- ═══════════════════════════════════════════════
@@ -54,6 +55,7 @@
   <br>
   <button onclick="convertConcept()">Convert to Concept</button>
   <button onclick="convertTask()">Convert to Task</button>
+  <button class="btn-grey" onclick="copyDitaXml()">📋 Copy XML</button>
   <h3>Output</h3>
   <textarea id="xmlOutput"></textarea>
 </div>
@@ -215,6 +217,9 @@
         <!-- Apply All / Download -->
         <div style="margin-top:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
           <button class="btn-green" onclick="applyFixes()">⚡ Apply All Auto-fixes</button>
+          <button onclick="caSendToDita()" title="Send latest content to Doc to DITA tab">📄 Send to Doc to DITA</button>
+          <button class="btn-grey" onclick="caCopyResults()" title="Copy results to clipboard">📋 Copy Results</button>
+          <button class="btn-grey" onclick="caDownloadResults()" title="Download results as .txt">⬇ Download Results</button>
           <span style="font-size:12px;color:#666;">Applies all safe replacements and removals.</span>
         </div>
 
@@ -389,6 +394,13 @@
       <button class="wr-tb-btn" id="wr-comment-btn" onmousedown="event.preventDefault()" onclick="wrAddComment()" title="Add comment to selected text">💬 Comment</button>
     </div>
 
+    <div class="wr-sep-v"></div>
+
+    <!-- Send to Analysis -->
+    <div class="wr-menu-group">
+      <button class="wr-tb-btn" onmousedown="event.preventDefault()" onclick="wrSendToAnalysis()" title="Send content to Content Analysis tab" style="color:var(--accent,#4f46e5);font-weight:600;">📝 Analyze</button>
+    </div>
+
   </div><!-- /menubar -->
 
   <!-- ── Find & Replace bar ── -->
@@ -436,7 +448,7 @@
   <!-- Floating Add Comment button — REMOVED, using toolbar instead -->
 
   <!-- ── Status bar ── -->
-  <div id="wr-status" style="background:#f3f3f3;border-top:1px solid #d0d0d0;padding:4px 16px;font-size:12px;color:#666;display:flex;gap:24px;flex-wrap:wrap;">
+  <div id="wr-status" style="background:#f3f3f3;border-top:1px solid #d0d0d0;padding:4px 16px;font-size:12px;color:#666;display:flex;gap:24px;flex-wrap:wrap;align-items:center;">
     <span>Words: <strong id="wr-wc">0</strong></span>
     <span>Characters: <strong id="wr-cc">0</strong></span>
     <span>Paragraphs: <strong id="wr-pc">0</strong></span>
