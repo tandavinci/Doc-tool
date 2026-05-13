@@ -12,8 +12,6 @@ Technical writers spend significant time ensuring their content meets organizati
 
 - **Convert faster** — Instead of manually structuring DITA XML, paste your content and generate valid Concept or Task topics instantly. This eliminates repetitive markup work and reduces formatting errors.
 
-- **Track documentation impact** — When JIRA backlogs grow, it's hard to know which existing topics need updates and which new topics are needed. The Impact Analyzer cross-references your JIRA export against your DITA map and tells you exactly what to create and what to update.
-
 - **Draft and review in one place** — The Initial Draft editor gives you a lightweight Word-like environment with formatting, comments, and replies. You can compose content, annotate it with review comments, and send it directly to the analysis engine without switching tools.
 
 - **Collaborate through comments** — The Word-style commenting system lets you select text, add annotations, and have threaded reply conversations. Comments persist across sessions so review context is never lost.
@@ -49,17 +47,7 @@ The goal is to reduce context-switching, catch quality issues early, and let wri
 - Send fixed content directly to the DITA converter
 - Upload `.txt` or `.docx` files for analysis
 
-### 3. JIRA & DITA Map Impact Analyzer
-- Upload a JIRA export (Excel `.xlsx`/`.xls`) and a DITA map output (ZIP with HTML topics)
-- Automatic column detection for JIRA Summary, Description, and Issue Type
-- Configurable match sensitivity (Strict / Normal / Loose)
-- Identifies:
-  - **Topics to Create** — JIRA items with no matching existing topic
-  - **Topics to Update** — JIRA items that match existing topics (with confidence score)
-- Summary dashboard with counts and color-coded badges
-- Export results as CSV (per category or full report)
-
-### 4. Initial Draft Editor (Lightweight Word Processor)
+### 3. Initial Draft Editor (Lightweight Word Processor)
 - Rich text editing with a familiar toolbar:
   - Font family and size selection
   - Bold, Italic, Underline, Strikethrough
