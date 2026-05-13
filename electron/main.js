@@ -28,7 +28,9 @@ let backendReady = false;
 function spawnBackend() {
   const backendPath = path.join(__dirname, '..', 'backend', 'protocol.py');
 
-  pythonProcess = spawn('python', [backendPath], {
+  // Try 'python' first, fall back to 'py' on Windows
+  const pythonCmd = process.platform === 'win32' ? 'py' : 'python';
+  pythonProcess = spawn(pythonCmd, [backendPath], {
     cwd: path.join(__dirname, '..', 'backend'),
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,

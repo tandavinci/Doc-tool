@@ -4,6 +4,24 @@ A desktop application for technical writers that provides content analysis, DITA
 
 ---
 
+## How This Tool Helps Technical Writers
+
+Technical writers spend significant time ensuring their content meets organizational writing standards, converting documents between formats, and tracking which topics need updates when requirements change. This tool consolidates those workflows into a single desktop application:
+
+- **Write with confidence** — The Content Analysis engine checks your text against 60+ writing rules in real time, catching issues like passive voice, vague modifiers, biased terminology, and non-standard word usage before review cycles begin.
+
+- **Convert faster** — Instead of manually structuring DITA XML, paste your content and generate valid Concept or Task topics instantly. This eliminates repetitive markup work and reduces formatting errors.
+
+- **Track documentation impact** — When JIRA backlogs grow, it's hard to know which existing topics need updates and which new topics are needed. The Impact Analyzer cross-references your JIRA export against your DITA map and tells you exactly what to create and what to update.
+
+- **Draft and review in one place** — The Initial Draft editor gives you a lightweight Word-like environment with formatting, comments, and replies. You can compose content, annotate it with review comments, and send it directly to the analysis engine without switching tools.
+
+- **Collaborate through comments** — The Word-style commenting system lets you select text, add annotations, and have threaded reply conversations. Comments persist across sessions so review context is never lost.
+
+The goal is to reduce context-switching, catch quality issues early, and let writers focus on content rather than tooling.
+
+---
+
 ## Features
 
 ### 1. DOC to DITA Converter

@@ -2241,11 +2241,36 @@ document.addEventListener('keydown', function(e) {
 /* ── Init on load ── */
 document.addEventListener('DOMContentLoaded', function() {
   wrUpdate();
+  wrLoadComments();
 
   // Listen for backend crash notifications (Electron only)
   if (window.api && window.api.onBackendError) {
     window.api.onBackendError(function(data) {
       alert('Backend Error: ' + (data.message || 'Backend process is unavailable. Please restart the application.'));
+    });
+  }
+
+  /* ── Hover interaction: highlight → card (Req 2.3) ── */
+  var wrPage = document.getElementById('wr-page');
+  if (wrPage) {
+    wrPage.addEventListener('mouseover', function(e) {
+      var highlight = e.target.closest('.wr-comment-highlight');
+      if (!highlight) return;
+      var commentId = highlight.getAttribute('data-comment-id');
+      if (!commentId) return;
+      var card = document.querySelector('.wr-comment-card[data-comment-id="' + commentId + '"]');
+      if (card) card.classList.add('hovered');
+    });
+    wrPage.addEventListener('mouseout', function(e) {
+      var highlight = e.target.closest('.wr-comment-highlight');
+      if (!highlight) return;
+      // Only remove if we're actually leaving the highlight (not entering a child)
+      var related = e.relatedTarget;
+      if (related && highlight.contains(related)) return;
+      var commentId = highlight.getAttribute('data-comment-id');
+      if (!commentId) return;
+      var card = document.querySelector('.wr-comment-card[data-comment-id="' + commentId + '"]');
+      if (card) card.classList.remove('hovered');
     });
   }
 });
@@ -2258,6 +2283,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 var _wrComments = []; // { id, text, snippet, range serialization }
 var _wrCommentId = 0;
+var _wrPendingRange = null; // Holds the selection range while the popover is open
 
 /* ── Show/hide floating "Add Comment" button — REMOVED ── */
 /* Comments are now triggered from the toolbar button only. */
@@ -2265,12 +2291,210 @@ function wrCheckSelection() {
   /* no-op: kept for compatibility with onmouseup handler */
 }
 
+/* ── Comment Popover: Show ── */
+function wrShowCommentPopover(range) {
+  var popover = document.getElementById('wr-comment-popover');
+  var canvas = document.getElementById('wr-canvas');
+  if (!popover || !canvas) return;
+
+  // Store the range for later use when submitting
+  _wrPendingRange = range;
+
+  // Get the bounding rect of the selection range
+  var rangeRect = range.getBoundingClientRect();
+  var canvasRect = canvas.getBoundingClientRect();
+
+  // Position the popover below the selection, relative to #wr-canvas
+  var top = rangeRect.bottom - canvasRect.top + canvas.scrollTop + 8;
+  var left = rangeRect.left - canvasRect.left;
+
+  // Clamp left so popover doesn't overflow canvas
+  var popoverWidth = 280;
+  if (left + popoverWidth > canvas.clientWidth) {
+    left = canvas.clientWidth - popoverWidth - 16;
+  }
+  if (left < 8) left = 8;
+
+  popover.style.top = top + 'px';
+  popover.style.left = left + 'px';
+  popover.style.display = 'block';
+
+  // Focus the textarea
+  var textarea = document.getElementById('wr-comment-popover-input');
+  if (textarea) {
+    textarea.value = '';
+    textarea.focus();
+  }
+}
+
+/* ── Comment Popover: Hide ── */
+function wrHideCommentPopover() {
+  var popover = document.getElementById('wr-comment-popover');
+  if (popover) {
+    popover.style.display = 'none';
+  }
+
+  // Clear the textarea
+  var textarea = document.getElementById('wr-comment-popover-input');
+  if (textarea) {
+    textarea.value = '';
+  }
+
+  // Clear the stored range
+  _wrPendingRange = null;
+}
+
+/* ── Comment Popover: Submit ── */
+function wrSubmitCommentFromPopover() {
+  var textarea = document.getElementById('wr-comment-popover-input');
+  if (!textarea) return;
+
+  var text = textarea.value;
+
+  // Prevent submission of empty/whitespace-only text (keep popover open)
+  if (!text || !text.trim()) {
+    textarea.focus();
+    return;
+  }
+
+  // If we have a pending range, create the comment
+  if (_wrPendingRange) {
+    var range = _wrPendingRange;
+    var snippet = range.toString().trim();
+
+    _wrCommentId++;
+    var id = 'wrc-' + _wrCommentId;
+
+    // Restore selection from stored range
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    // Wrap selected text in a highlight span
+    var mark = document.createElement('span');
+    mark.className = 'wr-comment-highlight';
+    mark.setAttribute('data-comment-id', id);
+    mark.title = text.trim();
+    try {
+      range.surroundContents(mark);
+    } catch (e) {
+      // surroundContents fails if selection crosses element boundaries (Req 1.7)
+      // Show notification and leave editor unchanged
+      alert('Cannot add comment: the selection spans multiple paragraphs or elements. Please select text within a single block.');
+      wrHideCommentPopover();
+      return;
+    }
+
+    // Store comment
+    _wrComments.push({
+      id: id,
+      text: text.trim(),
+      snippet: snippet.slice(0, 60),
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      replies: []
+    });
+
+    // Clear selection
+    window.getSelection().removeAllRanges();
+
+    // Render comments panel
+    wrRenderComments();
+    wrUpdate();
+    wrSaveComments();
+  }
+
+  wrHideCommentPopover();
+}
+
+/* ── Comment Popover: Keyboard shortcuts on textarea ── */
+(function() {
+  document.addEventListener('DOMContentLoaded', function() {
+    var textarea = document.getElementById('wr-comment-popover-input');
+    var submitBtn = document.getElementById('wr-popover-submit');
+    var cancelBtn = document.getElementById('wr-popover-cancel');
+
+    if (textarea) {
+      textarea.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          // Enter without Shift → submit
+          e.preventDefault();
+          wrSubmitCommentFromPopover();
+        } else if (e.key === 'Escape') {
+          // Escape → cancel and hide
+          e.preventDefault();
+          wrHideCommentPopover();
+        }
+        // Shift+Enter → default behavior (newline)
+      });
+    }
+
+    // Wire up Add button
+    if (submitBtn) {
+      submitBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        wrSubmitCommentFromPopover();
+      });
+    }
+
+    // Wire up Cancel button
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        wrHideCommentPopover();
+      });
+    }
+
+    // Click-outside-to-dismiss behavior
+    document.addEventListener('mousedown', function(e) {
+      var popover = document.getElementById('wr-comment-popover');
+      if (!popover || popover.style.display === 'none') return;
+
+      // Check if click is outside the popover
+      if (!popover.contains(e.target)) {
+        wrHideCommentPopover();
+      }
+    });
+  });
+})();
+
+/* ── Reply Input: Delegated keyboard shortcuts on #wr-comments-list ── */
+(function() {
+  document.addEventListener('DOMContentLoaded', function() {
+    var commentsList = document.getElementById('wr-comments-list');
+    if (!commentsList) return;
+
+    commentsList.addEventListener('keydown', function(e) {
+      // Only handle events from reply input textareas
+      if (!e.target || !e.target.classList.contains('wr-reply-input')) return;
+
+      if (e.key === 'Enter' && !e.shiftKey) {
+        // Enter without Shift → submit reply
+        e.preventDefault();
+        var area = e.target.closest('.wr-reply-input-area');
+        if (area && area.id) {
+          var commentId = area.id.replace('reply-input-', '');
+          wrSubmitReply(commentId);
+        }
+      } else if (e.key === 'Escape') {
+        // Escape → cancel reply
+        e.preventDefault();
+        var area = e.target.closest('.wr-reply-input-area');
+        if (area && area.id) {
+          var commentId = area.id.replace('reply-input-', '');
+          wrHideReplyInput(commentId);
+        }
+      }
+      // Shift+Enter → default behavior (newline)
+    });
+  });
+})();
+
 /* ── Add a comment (triggered from toolbar) ── */
 function wrAddComment() {
   var sel = window.getSelection();
   var page = document.getElementById('wr-page');
 
-  // Check selection exists and is within editor
+  // Check selection exists and is within editor (Req 1.3)
   if (!sel || sel.isCollapsed || !sel.rangeCount) {
     alert('Select text in the editor before adding a comment.');
     return;
@@ -2283,49 +2507,33 @@ function wrAddComment() {
 
   var range = sel.getRangeAt(0).cloneRange();
   var snippet = sel.toString().trim();
-  if (!snippet) { alert('Select text in the editor before adding a comment.'); return; }
 
-  // Use prompt for comment text — store range first since prompt may clear selection
-  var commentText = window.prompt('Add a comment:');
-  if (!commentText || !commentText.trim()) return;
-
-  _wrCommentId++;
-  var id = 'wrc-' + _wrCommentId;
-
-  // Restore selection from cloned range (prompt clears it in some browsers)
-  sel = window.getSelection();
-  sel.removeAllRanges();
-  sel.addRange(range);
-
-  // Wrap selected text in a highlight span
-  var mark = document.createElement('span');
-  mark.className = 'wr-comment-highlight';
-  mark.setAttribute('data-comment-id', id);
-  mark.title = commentText.trim();
-  try {
-    range.surroundContents(mark);
-  } catch (e) {
-    // surroundContents fails if selection crosses element boundaries
-    mark.textContent = snippet;
-    range.deleteContents();
-    range.insertNode(mark);
+  // Validate selection is non-whitespace (Req 1.4)
+  if (!snippet) {
+    alert('Select text in the editor before adding a comment.');
+    return;
   }
 
-  // Store comment
-  _wrComments.push({
-    id: id,
-    text: commentText.trim(),
-    snippet: snippet.slice(0, 60),
-    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  });
+  // Check for cross-element selection that cannot be wrapped (Req 1.7)
+  // surroundContents requires the range to select only inline content within a single parent
+  var testSpan = document.createElement('span');
+  try {
+    var testRange = range.cloneRange();
+    testRange.surroundContents(testSpan);
+    // If successful, undo the wrapping — unwrap the test span
+    var parent = testSpan.parentNode;
+    while (testSpan.firstChild) {
+      parent.insertBefore(testSpan.firstChild, testSpan);
+    }
+    parent.removeChild(testSpan);
+  } catch (e) {
+    // Selection crosses element boundaries — show notification and abort
+    alert('Cannot add comment: the selection spans multiple paragraphs or elements. Please select text within a single block.');
+    return;
+  }
 
-  // Clear selection
-  window.getSelection().removeAllRanges();
-
-  // Show panel and render
-  document.getElementById('wr-comments-panel').classList.add('has-comments');
-  wrRenderComments();
-  wrUpdate();
+  // Show the inline comment popover (Req 1.1, 7.1)
+  wrShowCommentPopover(range);
 }
 
 /* ── Render comments list ── */
@@ -2333,9 +2541,17 @@ function wrRenderComments() {
   var listEl = document.getElementById('wr-comments-list');
   var countEl = document.getElementById('wr-comments-count');
   var emptyEl = document.getElementById('wr-comments-empty');
+  var panelEl = document.getElementById('wr-comments-panel');
   if (!listEl) return;
 
   countEl.textContent = _wrComments.length;
+
+  // Manage panel visibility: show when comments exist, hide when empty (Req 2.6)
+  if (_wrComments.length > 0) {
+    panelEl.classList.add('has-comments');
+  } else {
+    panelEl.classList.remove('has-comments');
+  }
 
   if (_wrComments.length === 0) {
     listEl.innerHTML = '';
@@ -2348,29 +2564,78 @@ function wrRenderComments() {
   var html = '';
   for (var i = 0; i < _wrComments.length; i++) {
     var c = _wrComments[i];
-    html += '<div class="wr-comment-card" onclick="wrNavigateToComment(\'' + c.id + '\')">' +
-      '<div class="wr-comment-snippet">"' + hEsc(c.snippet) + '"</div>' +
+    var replies = c.replies || [];
+    var orphanedClass = c.orphaned ? ' orphaned' : '';
+    var snippetExtra = c.orphaned ? ' <span class="wr-orphaned-indicator">(text not found)</span>' : '';
+    html += '<div class="wr-comment-card' + orphanedClass + '" data-comment-id="' + c.id + '" onclick="wrNavigateToComment(\'' + c.id + '\')">' +
+      '<div class="wr-comment-snippet">"' + hEsc(c.snippet) + '"' + snippetExtra + '</div>' +
       '<div class="wr-comment-text">' + hEsc(c.text) + '</div>' +
       '<div class="wr-comment-footer">' +
         '<span class="wr-comment-time">' + c.time + '</span>' +
+        '<button class="wr-comment-reply-btn" onclick="wrShowReplyInput(\'' + c.id + '\');event.stopPropagation();">Reply</button>' +
         '<button class="wr-comment-delete" onclick="wrDeleteComment(\'' + c.id + '\');event.stopPropagation();">Remove</button>' +
+      '</div>' +
+      '<div class="wr-comment-replies">';
+    for (var j = 0; j < replies.length; j++) {
+      var r = replies[j];
+      html += '<div class="wr-reply-item">' +
+        '<div class="wr-reply-text">' + hEsc(r.text) + '</div>' +
+        '<div class="wr-reply-footer">' +
+          '<span class="wr-reply-time">' + r.time + '</span>' +
+          '<button class="wr-reply-delete" data-reply-id="' + r.id + '" onclick="wrDeleteReply(\'' + c.id + '\',\'' + r.id + '\');event.stopPropagation();">\u2715</button>' +
+        '</div>' +
+      '</div>';
+    }
+    html += '</div>' +
+      '<div class="wr-reply-input-area" id="reply-input-' + c.id + '" style="display:none;">' +
+        '<textarea class="wr-reply-input" maxlength="500" placeholder="Reply\u2026"></textarea>' +
+        '<div class="wr-reply-input-actions">' +
+          '<button class="btn-sm btn-green wr-reply-submit" onclick="wrSubmitReply(\'' + c.id + '\');event.stopPropagation();">Reply</button>' +
+          '<button class="btn-sm btn-grey wr-reply-cancel" onclick="wrHideReplyInput(\'' + c.id + '\');event.stopPropagation();">Cancel</button>' +
+        '</div>' +
       '</div>' +
     '</div>';
   }
   listEl.innerHTML = html;
 }
 
-/* ── Navigate to a comment highlight ── */
+/* ── Navigate to a comment highlight (card → highlight) ── */
 function wrNavigateToComment(id) {
-  var el = document.querySelector('[data-comment-id="' + id + '"]');
-  if (!el) return;
-  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  el.classList.add('focused');
-  setTimeout(function() { el.classList.remove('focused'); }, 1500);
+  // Target the highlight span specifically (not the card)
+  var highlight = document.querySelector('.wr-comment-highlight[data-comment-id="' + id + '"]');
+  if (!highlight) return;
+
+  // Scroll the editor to the highlight with smooth behavior, centered in view
+  highlight.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+  // Apply focus state to both highlight and card
+  if (typeof wrSetCommentFocus === 'function') {
+    wrSetCommentFocus(id);
+  } else {
+    // Fallback: apply focused class directly to highlight and card
+    highlight.classList.add('focused');
+    var panel = document.getElementById('wr-comments-list');
+    var card = panel ? panel.querySelector('.wr-comment-card[data-comment-id="' + id + '"]') : null;
+    if (card) card.classList.add('focused');
+  }
+
+  // Clear focus after 1500ms visual indicator
+  setTimeout(function() {
+    if (typeof wrClearCommentFocus === 'function') {
+      wrClearCommentFocus();
+    } else {
+      highlight.classList.remove('focused');
+      var panel = document.getElementById('wr-comments-list');
+      var card = panel ? panel.querySelector('.wr-comment-card[data-comment-id="' + id + '"]') : null;
+      if (card) card.classList.remove('focused');
+    }
+  }, 1500);
 }
 
 /* ── Delete a comment ── */
 function wrDeleteComment(id) {
+  if (!confirm('Delete this comment and all its replies?')) return;
+
   // Remove highlight from editor
   var el = document.querySelector('[data-comment-id="' + id + '"]');
   if (el) {
@@ -2385,13 +2650,379 @@ function wrDeleteComment(id) {
   // Remove from array
   _wrComments = _wrComments.filter(function(c) { return c.id !== id; });
 
-  // Hide panel if no comments left
-  if (_wrComments.length === 0) {
-    document.getElementById('wr-comments-panel').classList.remove('has-comments');
-  }
-
   wrRenderComments();
   wrUpdate();
+  wrSaveComments();
+}
+
+/* ── Add a reply to a comment ── */
+function wrAddReply(commentId, replyText) {
+  if (!replyText || !replyText.trim()) return;
+
+  var comment = null;
+  for (var i = 0; i < _wrComments.length; i++) {
+    if (_wrComments[i].id === commentId) {
+      comment = _wrComments[i];
+      break;
+    }
+  }
+  if (!comment) return;
+
+  // Ensure replies array exists (for comments created before this feature)
+  if (!comment.replies) { comment.replies = []; }
+
+  // Extract parent number from comment id (e.g. "wrc-3" → "3")
+  var parentNum = commentId.replace('wrc-', '');
+  var replyNum = comment.replies.length + 1;
+  var replyId = 'wcr-' + parentNum + '-' + replyNum;
+
+  comment.replies.push({
+    id: replyId,
+    text: replyText.trim(),
+    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  });
+
+  wrRenderComments();
+  wrSaveComments();
+}
+
+/* ── Delete a reply from a comment ── */
+function wrDeleteReply(commentId, replyId) {
+  var comment = null;
+  for (var i = 0; i < _wrComments.length; i++) {
+    if (_wrComments[i].id === commentId) {
+      comment = _wrComments[i];
+      break;
+    }
+  }
+  if (!comment || !comment.replies) return;
+
+  comment.replies = comment.replies.filter(function(r) { return r.id !== replyId; });
+
+  wrRenderComments();
+  wrSaveComments();
+}
+
+/* ── Reply input UI (stubs — full implementation in task 2.3) ── */
+function wrShowReplyInput(commentId) {
+  var area = document.getElementById('reply-input-' + commentId);
+  if (area) {
+    area.style.display = 'block';
+    var textarea = area.querySelector('.wr-reply-input');
+    if (textarea) textarea.focus();
+  }
+}
+
+function wrHideReplyInput(commentId) {
+  var area = document.getElementById('reply-input-' + commentId);
+  if (area) {
+    area.style.display = 'none';
+    var textarea = area.querySelector('.wr-reply-input');
+    if (textarea) textarea.value = '';
+  }
+}
+
+function wrSubmitReply(commentId) {
+  var area = document.getElementById('reply-input-' + commentId);
+  if (!area) return;
+  var textarea = area.querySelector('.wr-reply-input');
+  if (!textarea) return;
+  var text = textarea.value;
+  if (!text || !text.trim()) {
+    textarea.focus();
+    return;
+  }
+  wrAddReply(commentId, text);
+  wrHideReplyInput(commentId);
+}
+
+/* ── Focus state management ── */
+function wrSetCommentFocus(id) {
+  // Clear any existing focus first (ensures only one comment focused at a time)
+  wrClearCommentFocus();
+
+  // Apply focused class to the highlight span in the editor
+  var highlight = document.querySelector('.wr-comment-highlight[data-comment-id="' + id + '"]');
+  if (highlight) highlight.classList.add('focused');
+
+  // Apply focused class to the comment card in the panel
+  var panel = document.getElementById('wr-comments-list');
+  var card = panel ? panel.querySelector('.wr-comment-card[data-comment-id="' + id + '"]') : null;
+  if (card) card.classList.add('focused');
+}
+
+function wrClearCommentFocus() {
+  // Remove focused class from all highlight spans
+  var focusedHighlights = document.querySelectorAll('.wr-comment-highlight.focused');
+  for (var i = 0; i < focusedHighlights.length; i++) {
+    focusedHighlights[i].classList.remove('focused');
+  }
+
+  // Remove focused class from all comment cards
+  var focusedCards = document.querySelectorAll('.wr-comment-card.focused');
+  for (var j = 0; j < focusedCards.length; j++) {
+    focusedCards[j].classList.remove('focused');
+  }
+}
+
+/* ── Highlight-to-card navigation ── */
+function wrHighlightClicked(id) {
+  var panel = document.getElementById('wr-comments-list');
+  var card = panel ? panel.querySelector('.wr-comment-card[data-comment-id="' + id + '"]') : null;
+  if (!card || !panel) return;
+
+  // Set focus on both highlight and card
+  wrSetCommentFocus(id);
+
+  // Scroll the comments panel list to bring the card into view
+  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+/* ── Delegated click handler for highlight spans ── */
+(function() {
+  document.addEventListener('DOMContentLoaded', function() {
+    var page = document.getElementById('wr-page');
+    if (!page) return;
+    page.addEventListener('click', function(e) {
+      var highlight = e.target.closest('.wr-comment-highlight');
+      if (!highlight) {
+        // Clicked non-highlighted content in the editor — clear focus
+        wrClearCommentFocus();
+        return;
+      }
+      var id = highlight.getAttribute('data-comment-id');
+      if (id) wrHighlightClicked(id);
+    });
+  });
+})();
+
+/* ── Clear focus when clicking outside highlights and comments panel ── */
+(function() {
+  document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('click', function(e) {
+      // If click is inside the editor (wr-page), the page handler above manages focus
+      var page = document.getElementById('wr-page');
+      if (page && page.contains(e.target)) return;
+
+      // If click is inside the comments panel, don't clear focus
+      var panel = document.querySelector('.wr-comments-panel');
+      if (panel && panel.contains(e.target)) return;
+
+      // Click is outside both — clear focus
+      wrClearCommentFocus();
+    });
+  });
+})();
+
+/* ── Persistence: Offset calculation helpers ── */
+
+/**
+ * Calculate the character offset of a highlight element within #wr-page text content.
+ * Walks text nodes in document order, counting characters until reaching the highlight.
+ * Returns -1 if the highlight is not found or the editor is empty.
+ */
+function wrGetHighlightOffset(highlightEl) {
+  var page = document.getElementById('wr-page');
+  if (!page || !highlightEl) return -1;
+
+  var offset = 0;
+  var found = false;
+
+  // TreeWalker to iterate all text nodes in document order
+  var walker = document.createTreeWalker(page, NodeFilter.SHOW_TEXT, null, false);
+  var node;
+
+  while ((node = walker.nextNode())) {
+    // Check if this text node is inside the highlight element
+    if (highlightEl.contains(node)) {
+      found = true;
+      break;
+    }
+    offset += node.textContent.length;
+  }
+
+  return found ? offset : -1;
+}
+
+/**
+ * Re-apply a highlight span at a given character offset in #wr-page.
+ * Verifies that the text at the offset matches the saved snippet.
+ * Returns true if highlight was successfully restored, false otherwise.
+ */
+function wrRestoreHighlight(commentObj) {
+  var page = document.getElementById('wr-page');
+  if (!page) return false;
+
+  var targetOffset = commentObj.offset;
+  var snippet = commentObj.snippet;
+
+  // Edge case: empty editor
+  if (!page.textContent || page.textContent.length === 0) return false;
+
+  // Edge case: offset beyond content length
+  if (targetOffset < 0 || targetOffset >= page.textContent.length) return false;
+
+  // Verify text at offset matches the snippet
+  var textAtOffset = page.textContent.substr(targetOffset, snippet.length);
+  if (textAtOffset !== snippet) return false;
+
+  // Walk text nodes to find the node and position at the target offset
+  var walker = document.createTreeWalker(page, NodeFilter.SHOW_TEXT, null, false);
+  var node;
+  var currentOffset = 0;
+  var startNode = null;
+  var startPos = 0;
+
+  while ((node = walker.nextNode())) {
+    var nodeLen = node.textContent.length;
+    if (currentOffset + nodeLen > targetOffset) {
+      startNode = node;
+      startPos = targetOffset - currentOffset;
+      break;
+    }
+    currentOffset += nodeLen;
+  }
+
+  if (!startNode) return false;
+
+  // Find the end position (may span multiple text nodes)
+  var endNode = startNode;
+  var endPos = startPos + snippet.length;
+  var remainingInStart = startNode.textContent.length - startPos;
+
+  if (snippet.length <= remainingInStart) {
+    // Entire snippet fits within the start node
+    endNode = startNode;
+    endPos = startPos + snippet.length;
+  } else {
+    // Snippet spans multiple text nodes — find the end
+    var remaining = snippet.length - remainingInStart;
+    var searchNode = startNode;
+    while (remaining > 0) {
+      searchNode = walker.nextNode();
+      if (!searchNode) return false;
+      if (searchNode.textContent.length >= remaining) {
+        endNode = searchNode;
+        endPos = remaining;
+        remaining = 0;
+      } else {
+        remaining -= searchNode.textContent.length;
+      }
+    }
+  }
+
+  // Create a range and wrap in highlight span
+  try {
+    var range = document.createRange();
+    range.setStart(startNode, startPos);
+    range.setEnd(endNode, endPos);
+
+    var mark = document.createElement('span');
+    mark.className = 'wr-comment-highlight';
+    mark.setAttribute('data-comment-id', commentObj.id);
+    mark.title = commentObj.text;
+    range.surroundContents(mark);
+    return true;
+  } catch (e) {
+    // surroundContents can fail if range crosses element boundaries
+    return false;
+  }
+}
+
+/* ── Persistence: Save comments to localStorage ── */
+
+/**
+ * Serializes _wrComments array to localStorage key "wr-comments-data".
+ * Includes schema version, comment ID counter, and full comment objects with offsets.
+ * Handles storage quota exceeded by showing notification and retaining in-memory.
+ */
+function wrSaveComments() {
+  // Build comments array with calculated offsets
+  var commentsData = [];
+  for (var i = 0; i < _wrComments.length; i++) {
+    var comment = _wrComments[i];
+
+    // Calculate offset from the highlight span in the DOM
+    var highlightEl = document.querySelector('.wr-comment-highlight[data-comment-id="' + comment.id + '"]');
+    var offset = highlightEl ? wrGetHighlightOffset(highlightEl) : -1;
+
+    commentsData.push({
+      id: comment.id,
+      text: comment.text,
+      snippet: comment.snippet,
+      time: comment.time,
+      offset: offset,
+      replies: comment.replies || []
+    });
+  }
+
+  var data = {
+    version: 1,
+    commentIdCounter: _wrCommentId,
+    comments: commentsData
+  };
+
+  try {
+    localStorage.setItem('wr-comments-data', JSON.stringify(data));
+  } catch (e) {
+    // Handle storage quota exceeded (or other localStorage errors)
+    if (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014) {
+      alert('Comments could not be saved: storage quota exceeded. Your comments are retained in memory for this session.');
+    } else {
+      alert('Comments could not be saved: ' + e.message + '. Your comments are retained in memory for this session.');
+    }
+  }
+}
+
+/* ── Persistence: Load comments from localStorage ── */
+
+/**
+ * Reads saved comments from localStorage and restores state.
+ * Re-applies highlight spans by matching saved character offset and verifying snippet text.
+ * If text at offset doesn't match snippet, marks comment as orphaned (no highlight applied).
+ * Restores comment ID counter to avoid collisions.
+ * Should be called on DOMContentLoaded.
+ */
+function wrLoadComments() {
+  var raw = localStorage.getItem('wr-comments-data');
+  if (!raw) return;
+
+  var data;
+  try {
+    data = JSON.parse(raw);
+  } catch (e) {
+    return; // Invalid JSON, skip restoration
+  }
+
+  // Validate schema version
+  if (!data || data.version !== 1) return;
+
+  // Restore comment ID counter to avoid collisions
+  if (typeof data.commentIdCounter === 'number' && data.commentIdCounter > _wrCommentId) {
+    _wrCommentId = data.commentIdCounter;
+  }
+
+  // Restore each comment
+  var comments = data.comments || [];
+  for (var i = 0; i < comments.length; i++) {
+    var comment = comments[i];
+
+    // Ensure replies array exists
+    if (!comment.replies) comment.replies = [];
+
+    // Attempt to re-apply highlight span
+    var restored = wrRestoreHighlight(comment);
+
+    // If restoration fails, mark as orphaned
+    if (!restored) {
+      comment.orphaned = true;
+    }
+
+    _wrComments.push(comment);
+  }
+
+  // Render all comments (including orphaned ones)
+  wrRenderComments();
 }
 
 /* ── Hide comment button — no-op (floating button removed) ── */
