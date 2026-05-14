@@ -5,12 +5,58 @@
   "main": "electron/main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "electron . --dev"
+    "dev": "electron . --dev",
+    "build-backend": "pyinstaller --distpath ./backend-dist --workpath ./build-backend --clean backend.spec",
+    "dist": "npm run build-backend && electron-builder --win",
+    "dist-portable": "npm run build-backend && electron-builder --win portable",
+    "pack": "electron-builder --dir"
   },
-  "dependencies": {
-    "electron": "^31.0.0"
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^25.1.8"
   },
-  "devDependencies": {},
+  "build": {
+    "appId": "com.contentanalysis.app",
+    "productName": "Content Analysis",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "frontend/**/*",
+      "!node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "backend-dist/backend/",
+        "to": "backend",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": null
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "portable": {
+      "artifactName": "${productName}-Portable-${version}.${ext}"
+    }
+  },
   "author": "",
   "license": "UNLICENSED",
   "private": true

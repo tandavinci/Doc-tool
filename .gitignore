@@ -12,6 +12,8 @@ venv/
 dist/
 build/
 out/
+backend-dist/
+build-backend/
 
 # Archives & binaries
 *.zip

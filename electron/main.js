@@ -25,13 +25,40 @@ let backendReady = false;
 // PYTHON BACKEND MANAGEMENT
 // =============================================================================
 
-function spawnBackend() {
-  const backendPath = path.join(__dirname, '..', 'backend', 'protocol.py');
+/**
+ * Determine backend executable path based on environment:
+ * - Development: runs Python interpreter with protocol.py
+ * - Packaged: runs the PyInstaller-bundled backend.exe from resources
+ */
+function getBackendConfig() {
+  if (app.isPackaged) {
+    // In packaged mode, backend exe is in resources/backend/
+    const backendExe = path.join(process.resourcesPath, 'backend', 'backend.exe');
+    return {
+      command: backendExe,
+      args: [],
+      cwd: path.join(process.resourcesPath, 'backend'),
+    };
+  } else {
+    // Development mode: use Python interpreter
+    const backendPath = path.join(__dirname, '..', 'backend', 'protocol.py');
+    const pythonCmd = process.platform === 'win32' ? 'py' : 'python';
+    return {
+      command: pythonCmd,
+      args: [backendPath],
+      cwd: path.join(__dirname, '..', 'backend'),
+    };
+  }
+}
 
-  // Try 'python' first, fall back to 'py' on Windows
-  const pythonCmd = process.platform === 'win32' ? 'py' : 'python';
-  pythonProcess = spawn(pythonCmd, [backendPath], {
-    cwd: path.join(__dirname, '..', 'backend'),
+function spawnBackend() {
+  const config = getBackendConfig();
+
+  console.log(`[main] Starting backend: ${config.command} ${config.args.join(' ')}`);
+  console.log(`[main] Backend cwd: ${config.cwd}`);
+
+  pythonProcess = spawn(config.command, config.args, {
+    cwd: config.cwd,
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
   });
