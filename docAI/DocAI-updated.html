@@ -111,12 +111,6 @@ input[type=file] { margin: 10px 0; }
 }
 .tab.active { background: #007cba; color: white; }
 
-/* â”€â”€ IMPACT ANALYZER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-#report {
-  white-space: pre-wrap; background: #111; color: #00ff9c;
-  padding: 15px; font-family: monospace; max-height: 500px; overflow: auto; border-radius: 4px;
-}
-
 /* â”€â”€ CA VIOLATION HIGHLIGHTS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .ca-violation { cursor: pointer; border-radius: 2px; padding: 0 2px; }
 .ca-remove    { background:#ffc7ce; border-bottom:2px solid #c0392b; }
@@ -490,9 +484,8 @@ input[type=file] { margin: 10px 0; }
 <!-- TABS -->
 <div class="tabs">
   <span class="tab active" onclick="openTab('converter',event)">DOC to DITA</span>
-  <span class="tab"        onclick="openTab('analyzer',event)">Impact Analyzer</span>
   <span class="tab"        onclick="openTab('contentAnalysis',event)">Content Analysis</span>
-  <span class="tab"        onclick="openTab('rewrite',event)">Author</span>
+  <span class="tab"        onclick="openTab('rewrite',event)">Initial Draft</span>
 </div>
 
 <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -506,119 +499,6 @@ input[type=file] { margin: 10px 0; }
   <button onclick="convertTask()">Convert to Task</button>
   <h3>Output</h3>
   <textarea id="xmlOutput"></textarea>
-</div>
-
-<!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-     TAB 2: IMPACT ANALYZER
-     â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-<div id="analyzer" class="section" style="display:none">
-  <h2>JIRA &amp; DITA Map Impact Analyzer</h2>
-  <p style="font-size:13px;color:#666;margin-top:0;margin-bottom:18px;">
-    Upload your JIRA export (Excel) and your DITA map output (ZIP containing HTML topics + TOC).
-    The analyzer will tell you which topics need to be <strong>created</strong> and which need to be <strong>updated</strong>.
-  </p>
-
-  <!-- â”€â”€ Upload Row â”€â”€ -->
-  <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:18px;">
-
-    <div style="flex:1;min-width:240px;background:#f8fafc;border:1px solid #dde3ea;border-radius:8px;padding:16px;">
-      <div style="font-weight:600;font-size:13px;color:#1a2332;margin-bottom:8px;">ðŸ“Š JIRA Export (Excel)</div>
-      <div style="font-size:12px;color:#666;margin-bottom:10px;">Accepts .xlsx or .xls exported from JIRA</div>
-      <input type="file" id="jiraFile" accept=".xlsx,.xls" style="margin:0;">
-      <div id="jira-col-row" style="display:none;margin-top:12px;">
-        <label style="font-size:12px;font-weight:600;color:#555;">Summary column:</label>
-        <select id="jiraSummaryCol" style="margin-left:6px;font-size:12px;padding:3px 6px;border:1px solid #ccc;border-radius:4px;"></select>
-        <br><br>
-        <label style="font-size:12px;font-weight:600;color:#555;">Description column <span style="font-weight:normal;">(optional)</span>:</label>
-        <select id="jiraDescCol" style="margin-left:6px;font-size:12px;padding:3px 6px;border:1px solid #ccc;border-radius:4px;"></select>
-        <br><br>
-        <label style="font-size:12px;font-weight:600;color:#555;">Issue Type column <span style="font-weight:normal;">(optional)</span>:</label>
-        <select id="jiraTypeCol" style="margin-left:6px;font-size:12px;padding:3px 6px;border:1px solid #ccc;border-radius:4px;"></select>
-        <div id="jira-preview" style="margin-top:10px;font-size:12px;color:#007cba;font-weight:600;"></div>
-      </div>
-    </div>
-
-    <div style="flex:1;min-width:240px;background:#f8fafc;border:1px solid #dde3ea;border-radius:8px;padding:16px;">
-      <div style="font-weight:600;font-size:13px;color:#1a2332;margin-bottom:8px;">ðŸ“¦ DITA Map Output (ZIP)</div>
-      <div style="font-size:12px;color:#666;margin-bottom:10px;">ZIP containing HTML topic files and TOC/ditamap</div>
-      <input type="file" id="ditaZipFile" accept=".zip" style="margin:0;">
-      <div id="dita-preview" style="margin-top:10px;font-size:12px;color:#007cba;font-weight:600;"></div>
-    </div>
-
-  </div>
-
-  <!-- â”€â”€ Match Threshold â”€â”€ -->
-  <div style="display:flex;align-items:center;gap:16px;margin-bottom:18px;flex-wrap:wrap;">
-    <div style="font-size:13px;font-weight:600;color:#555;">Match sensitivity:</div>
-    <label style="font-size:12px;cursor:pointer;"><input type="radio" name="sensitivity" value="strict" style="margin-right:4px;">Strict (fewer matches)</label>
-    <label style="font-size:12px;cursor:pointer;"><input type="radio" name="sensitivity" value="normal" checked style="margin-right:4px;">Normal</label>
-    <label style="font-size:12px;cursor:pointer;"><input type="radio" name="sensitivity" value="loose" style="margin-right:4px;">Loose (more matches)</label>
-  </div>
-
-  <div style="display:flex;gap:10px;margin-bottom:6px;">
-    <button onclick="runImpactAnalysis()">â–¶ Run Impact Analysis</button>
-    <button class="btn-grey" onclick="clearImpactAnalysis()">Clear</button>
-  </div>
-
-  <!-- â”€â”€ Results â”€â”€ -->
-  <div id="impact-results" style="display:none;margin-top:24px;">
-
-    <!-- Summary strip -->
-    <div id="impact-summary-strip" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px;"></div>
-
-    <!-- CREATE table -->
-    <div id="impact-create-section">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-        <h3 style="margin:0;color:#155724;">ðŸ†• Topics to Create</h3>
-        <span id="create-count" class="issue-count-badge" style="background:#28a745;">0</span>
-        <button class="btn-sm btn-grey" onclick="exportImpactCSV('create')" style="margin-left:auto;">Export CSV</button>
-      </div>
-      <div style="overflow-x:auto;">
-        <table class="vtable" id="create-table">
-          <thead><tr>
-            <th style="width:36px;">#</th>
-            <th style="width:110px;">JIRA Key</th>
-            <th style="width:100px;">Type</th>
-            <th>JIRA Summary</th>
-            <th>Suggested Topic Title</th>
-            <th style="width:120px;">Confidence</th>
-          </tr></thead>
-          <tbody id="create-tbody"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <div style="margin:24px 0 0;"></div>
-
-    <!-- UPDATE table -->
-    <div id="impact-update-section">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-        <h3 style="margin:0;color:#856404;">âœï¸ Topics to Update</h3>
-        <span id="update-count" class="issue-count-badge" style="background:#ffc107;color:#333;">0</span>
-        <button class="btn-sm btn-grey" onclick="exportImpactCSV('update')" style="margin-left:auto;">Export CSV</button>
-      </div>
-      <div style="overflow-x:auto;">
-        <table class="vtable" id="update-table">
-          <thead><tr>
-            <th style="width:36px;">#</th>
-            <th style="width:110px;">JIRA Key</th>
-            <th style="width:100px;">Type</th>
-            <th>JIRA Summary</th>
-            <th>Matched Topic File</th>
-            <th style="width:120px;">Match Score</th>
-          </tr></thead>
-          <tbody id="update-tbody"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <div style="margin-top:20px;">
-      <button class="btn-green" onclick="exportImpactCSV('all')">â¬‡ Export Full Report (CSV)</button>
-    </div>
-
-  </div><!-- /impact-results -->
-
-  <div id="impact-error" style="display:none;background:#ffeaea;border:1px solid #f5c6cb;padding:12px;border-radius:6px;font-size:13px;color:#721c24;margin-top:12px;"></div>
 </div>
 
 <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -955,7 +835,7 @@ input[type=file] { margin: 10px 0; }
    TAB SWITCHING
    ============================================================ */
 function openTab(id, e) {
-  ['converter','analyzer','contentAnalysis','rewrite'].forEach(t =>
+  ['converter','contentAnalysis','rewrite'].forEach(t =>
     document.getElementById(t).style.display = 'none');
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   e.target.classList.add('active');
@@ -984,257 +864,6 @@ function convertTask() {
 function xEsc(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
-
-/* ============================================================
-   IMPACT ANALYZER  â€”  JIRA + DITA MAP
-   ============================================================ */
-
-/* â”€â”€ State â”€â”€ */
-var _jiraRows    = [];   // parsed from Excel
-var _ditaTopics  = [];   // parsed from ZIP
-var _createList  = [];
-var _updateList  = [];
-
-/* â”€â”€ Excel column detection â”€â”€ */
-document.getElementById('jiraFile').addEventListener('change', async function(e) {
-  var file = e.target.files[0];
-  if (!file) return;
-  var ab = await file.arrayBuffer();
-  var wb = XLSX.read(ab, { type: 'array' });
-  var ws = wb.Sheets[wb.SheetNames[0]];
-  var rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
-  _jiraRows = rows;
-  var cols = rows.length ? Object.keys(rows[0]) : [];
-  ['jiraSummaryCol','jiraDescCol','jiraTypeCol'].forEach(function(id) {
-    var sel = document.getElementById(id);
-    sel.innerHTML = '<option value="">(none)</option>' +
-      cols.map(function(c){ return '<option value="'+hEsc(c)+'">'+hEsc(c)+'</option>'; }).join('');
-  });
-  /* Auto-detect common column names */
-  function autoSelect(id, hints) {
-    var sel = document.getElementById(id);
-    for (var i = 0; i < hints.length; i++) {
-      var h = hints[i].toLowerCase();
-      for (var j = 0; j < cols.length; j++) {
-        if (cols[j].toLowerCase().includes(h)) { sel.value = cols[j]; return; }
-      }
-    }
-  }
-  autoSelect('jiraSummaryCol', ['summary','title','subject','name','headline']);
-  autoSelect('jiraDescCol',    ['description','detail','body','desc','notes']);
-  autoSelect('jiraTypeCol',    ['issuetype','issue type','type','kind','category']);
-  document.getElementById('jira-col-row').style.display = 'block';
-  document.getElementById('jira-preview').textContent = '\u2705 ' + rows.length + ' JIRA rows loaded';
-});
-
-/* â”€â”€ ZIP parsing â”€â”€ */
-document.getElementById('ditaZipFile').addEventListener('change', async function(e) {
-  var file = e.target.files[0];
-  if (!file) return;
-  var ab = await file.arrayBuffer();
-  var zip = await JSZip.loadAsync(ab);
-  var topics = [];
-  var htmlFiles = Object.keys(zip.files).filter(function(n){ return n.match(/\.html?$/i); });
-  for (var i = 0; i < htmlFiles.length; i++) {
-    var name = htmlFiles[i];
-    var content = await zip.files[name].async('string');
-    var titleMatch = content.match(/<title[^>]*>([^<]+)<\/title>/i);
-    var h1Match    = content.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
-    var title = (titleMatch && titleMatch[1].trim()) ||
-                (h1Match && h1Match[1].replace(/<[^>]+>/g,'').trim()) ||
-                name.replace(/.*[\\/]/,'').replace(/\.html?$/i,'');
-    var bodyMatch = content.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-    var bodyText  = bodyMatch ? bodyMatch[1].replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim().substring(0,800) : '';
-    topics.push({ file: name, title: title, body: bodyText });
-  }
-  _ditaTopics = topics;
-  document.getElementById('dita-preview').textContent = '\u2705 ' + topics.length + ' topic files found in ZIP';
-});
-
-/* â”€â”€ Similarity helpers â”€â”€ */
-function tokenise(str) {
-  return (str || '').toLowerCase()
-    .replace(/[^a-z0-9\s]/g,' ')
-    .split(/\s+/)
-    .filter(function(w){ return w.length > 2; });
-}
-function jaccardSim(a, b) {
-  if (!a.length && !b.length) return 0;
-  var setA = {}, setB = {};
-  a.forEach(function(w){ setA[w]=1; });
-  b.forEach(function(w){ setB[w]=1; });
-  var inter = 0;
-  Object.keys(setA).forEach(function(w){ if (setB[w]) inter++; });
-  var union = Object.keys(setA).length + Object.keys(setB).length - inter;
-  return union > 0 ? inter / union : 0;
-}
-
-/* â”€â”€ Main analysis â”€â”€ */
-async function runImpactAnalysis() {
-  var errEl = document.getElementById('impact-error');
-  errEl.style.display = 'none';
-
-  if (!_jiraRows.length)  { showImpactError('Please upload a JIRA Excel file first.'); return; }
-  if (!_ditaTopics.length){ showImpactError('Please upload the DITA map ZIP file first.'); return; }
-
-  var summaryCol = document.getElementById('jiraSummaryCol').value;
-  if (!summaryCol) { showImpactError('Please select the JIRA Summary column.'); return; }
-  var descCol    = document.getElementById('jiraDescCol').value;
-  var typeCol    = document.getElementById('jiraTypeCol').value;
-
-  var sensVal    = document.querySelector('input[name="sensitivity"]:checked').value;
-  var thresholds = { strict:0.30, normal:0.18, loose:0.10 };
-  var threshold  = thresholds[sensVal];
-
-  _createList = [];
-  _updateList = [];
-
-  /* Pre-tokenise topics once */
-  var topicTokens = _ditaTopics.map(function(t){
-    return tokenise(t.title + ' ' + t.body);
-  });
-
-  _jiraRows.forEach(function(row, idx) {
-    var summary  = String(row[summaryCol] || '');
-    var desc     = descCol ? String(row[descCol] || '') : '';
-    var issueType= typeCol ? String(row[typeCol] || '') : '';
-
-    /* Try to detect JIRA key (first column that looks like ABC-123) */
-    var jiraKey  = '';
-    Object.keys(row).forEach(function(k){
-      if (!jiraKey && /^[A-Z]+-\d+$/.test(String(row[k]||'').trim())) jiraKey = row[k];
-    });
-    if (!jiraKey) jiraKey = 'ROW-' + (idx+1);
-
-    var jiraTokens = tokenise(summary + ' ' + desc);
-
-    /* Find best matching topic */
-    var bestScore = 0, bestTopic = null;
-    _ditaTopics.forEach(function(topic, ti) {
-      var score = jaccardSim(jiraTokens, topicTokens[ti]);
-      if (score > bestScore) { bestScore = score; bestTopic = topic; }
-    });
-
-    /* Suggest topic title from JIRA summary */
-    var suggested = summary
-      .replace(/^\[.*?\]\s*/,'')
-      .replace(/^(feat|fix|chore|docs|refactor|update|add|new|create|improve):\s*/i,'')
-      .trim();
-    if (suggested.length > 80) suggested = suggested.substring(0,77) + '\u2026';
-
-    if (bestScore >= threshold) {
-      _updateList.push({
-        key: jiraKey, type: issueType, summary: summary,
-        matchedFile: bestTopic ? bestTopic.file : '',
-        matchedTitle: bestTopic ? bestTopic.title : '',
-        score: bestScore
-      });
-    } else {
-      _createList.push({
-        key: jiraKey, type: issueType, summary: summary,
-        suggested: suggested, score: bestScore
-      });
-    }
-  });
-
-  renderImpactResults();
-}
-
-function showImpactError(msg) {
-  var el = document.getElementById('impact-error');
-  el.textContent = msg;
-  el.style.display = 'block';
-}
-
-function renderImpactResults() {
-  /* Summary strip */
-  var strip = document.getElementById('impact-summary-strip');
-  strip.innerHTML = [
-    ['Total JIRAs', _jiraRows.length, '#343a40', 'white'],
-    ['Topics to Create', _createList.length, '#28a745', 'white'],
-    ['Topics to Update', _updateList.length, '#ffc107', '#333'],
-    ['DITA Topics in ZIP', _ditaTopics.length, '#007cba', 'white']
-  ].map(function(d){
-    return '<div style="background:'+d[2]+';color:'+d[3]+';padding:10px 18px;border-radius:8px;text-align:center;">' +
-           '<div style="font-size:22px;font-weight:700;">'+d[1]+'</div>' +
-           '<div style="font-size:12px;opacity:.9;">'+d[0]+'</div></div>';
-  }).join('');
-
-  /* CREATE table */
-  document.getElementById('create-count').textContent = _createList.length;
-  var ctbody = document.getElementById('create-tbody');
-  ctbody.innerHTML = _createList.length ? _createList.map(function(r,i){
-    var conf = r.score > 0.08 ? 'Possible duplicate' : 'New topic';
-    var confColor = r.score > 0.08 ? '#856404' : '#155724';
-    var confBg    = r.score > 0.08 ? '#fff3cd' : '#d4edda';
-    return '<tr>' +
-      '<td>'+(i+1)+'</td>' +
-      '<td style="font-family:monospace;font-size:12px;">'+hEsc(r.key)+'</td>' +
-      '<td><span style="font-size:11px;background:#e2e3e5;padding:2px 6px;border-radius:10px;">'+hEsc(r.type||'â€”')+'</span></td>' +
-      '<td style="font-size:13px;">'+hEsc(r.summary)+'</td>' +
-      '<td style="font-size:13px;color:#007cba;font-style:italic;">'+hEsc(r.suggested)+'</td>' +
-      '<td><span style="font-size:11px;background:'+confBg+';color:'+confColor+';padding:3px 8px;border-radius:10px;">'+conf+'</span></td>' +
-      '</tr>';
-  }).join('') : '<tr><td colspan="6" style="text-align:center;color:#888;padding:20px;">No new topics needed â€” all JIRAs matched existing content.</td></tr>';
-
-  /* UPDATE table */
-  document.getElementById('update-count').textContent = _updateList.length;
-  var utbody = document.getElementById('update-tbody');
-  utbody.innerHTML = _updateList.length ? _updateList.map(function(r,i){
-    var pct = Math.round(r.score * 100);
-    var barColor = pct > 50 ? '#28a745' : pct > 30 ? '#ffc107' : '#007cba';
-    return '<tr>' +
-      '<td>'+(i+1)+'</td>' +
-      '<td style="font-family:monospace;font-size:12px;">'+hEsc(r.key)+'</td>' +
-      '<td><span style="font-size:11px;background:#e2e3e5;padding:2px 6px;border-radius:10px;">'+hEsc(r.type||'â€”')+'</span></td>' +
-      '<td style="font-size:13px;">'+hEsc(r.summary)+'</td>' +
-      '<td style="font-size:12px;color:#555;">'+hEsc(r.matchedTitle || r.matchedFile)+'<br><span style="font-size:11px;color:#888;">'+hEsc(r.matchedFile)+'</span></td>' +
-      '<td><div style="font-size:12px;font-weight:700;color:'+barColor+';">'+pct+'%</div>' +
-           '<div style="height:5px;background:#eee;border-radius:3px;margin-top:3px;">' +
-           '<div style="width:'+Math.min(pct,100)+'%;height:5px;background:'+barColor+';border-radius:3px;"></div></div></td>' +
-      '</tr>';
-  }).join('') : '<tr><td colspan="6" style="text-align:center;color:#888;padding:20px;">No topics matched for update.</td></tr>';
-
-  document.getElementById('impact-results').style.display = 'block';
-}
-
-function clearImpactAnalysis() {
-  _jiraRows = []; _ditaTopics = []; _createList = []; _updateList = [];
-  document.getElementById('jiraFile').value = '';
-  document.getElementById('ditaZipFile').value = '';
-  document.getElementById('jira-col-row').style.display = 'none';
-  document.getElementById('jira-preview').textContent = '';
-  document.getElementById('dita-preview').textContent = '';
-  document.getElementById('impact-results').style.display = 'none';
-  document.getElementById('impact-error').style.display = 'none';
-}
-
-function exportImpactCSV(which) {
-  var rows = [], header = '';
-  if (which === 'create' || which === 'all') {
-    header = 'Action,JIRA Key,Issue Type,JIRA Summary,Suggested Topic Title\n';
-    rows = rows.concat(_createList.map(function(r){
-      return 'CREATE,'+csvCell(r.key)+','+csvCell(r.type)+','+csvCell(r.summary)+','+csvCell(r.suggested);
-    }));
-  }
-  if (which === 'update' || which === 'all') {
-    if (!rows.length) header = 'Action,JIRA Key,Issue Type,JIRA Summary,Matched Topic File,Match Score\n';
-    rows = rows.concat(_updateList.map(function(r){
-      return 'UPDATE,'+csvCell(r.key)+','+csvCell(r.type)+','+csvCell(r.summary)+','+csvCell(r.matchedFile)+','+(Math.round(r.score*100)+'%');
-    }));
-  }
-  if (!rows.length) { alert('Nothing to export.'); return; }
-  var csv = header + rows.join('\n');
-  var blob = new Blob([csv], { type: 'text/csv' });
-  saveAs(blob, 'impact-analysis-' + which + '.csv');
-}
-
-function csvCell(v) {
-  v = String(v||'');
-  if (v.includes(',') || v.includes('"') || v.includes('\n')) return '"' + v.replace(/"/g,'""') + '"';
-  return v;
-}
-
 
 /* ============================================================
    CONTENT ANALYSIS â€” RULE DEFINITIONS
@@ -3225,7 +2854,7 @@ function wrSendToCA() {
   /* Put plain text into CA textarea */
   document.getElementById('caInput').value = text;
   /* Switch to Content Analysis tab */
-  ['converter','analyzer','contentAnalysis','rewrite'].forEach(function(id){
+  ['converter','contentAnalysis','rewrite'].forEach(function(id){
     document.getElementById(id).style.display = 'none';
   });
   document.querySelectorAll('.tab').forEach(function(t){ t.classList.remove('active'); });
@@ -3246,12 +2875,12 @@ function wrPushBackFromCA() {
   /* Apply text-level fixes onto original HTML */
   var html = _caSourceHtml ? applyFixesToHtml(_caSourceHtml) : fixed.split('\n').map(function(l){return '<p>'+hEsc(l)+'</p>';}).join('');
   /* Switch to Write tab */
-  ['converter','analyzer','contentAnalysis','rewrite'].forEach(function(id){
+  ['converter','contentAnalysis','rewrite'].forEach(function(id){
     document.getElementById(id).style.display = 'none';
   });
   document.querySelectorAll('.tab').forEach(function(t){ t.classList.remove('active'); });
   document.querySelectorAll('.tab').forEach(function(t){
-    if (t.textContent.trim() === 'Author') t.classList.add('active');
+    if (t.textContent.trim() === 'Initial Draft') t.classList.add('active');
   });
   document.getElementById('rewrite').style.display = 'block';
   document.getElementById('wr-page').innerHTML = html;
