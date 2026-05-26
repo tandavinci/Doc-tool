@@ -45,7 +45,9 @@
           "arch": ["x64"]
         }
       ],
-      "icon": null
+      "icon": null,
+      "signAndEditExecutable": false,
+      "signingHashAlgorithms": null
     },
     "nsis": {
       "oneClick": false,

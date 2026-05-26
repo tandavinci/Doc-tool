@@ -32,6 +32,62 @@ function openTab(id, e) {
 }
 
 /* ============================================================
+   UTILITY — FILENAME SANITIZATION
+   [SHARED: Utility] — used by save functions to derive filenames
+   ============================================================ */
+
+/**
+ * Sanitizes a string for use as a filename.
+ * Removes invalid Windows filename characters, collapses whitespace,
+ * trims, and truncates to 100 characters without splitting a word.
+ * @param {string} text - Raw text (e.g., heading content)
+ * @returns {string} Sanitized filename, or "Untitled" if result is empty
+ */
+function sanitizeFilename(text) {
+  if (!text) return 'Untitled';
+
+  // 1. Remove characters invalid in Windows filenames: \ / : * ? " < > |
+  var result = text.replace(/[\\/:*?"<>|]/g, '');
+
+  // 2. Collapse consecutive whitespace into a single space
+  result = result.replace(/\s+/g, ' ');
+
+  // 3. Trim leading and trailing whitespace
+  result = result.trim();
+
+  // 4. Return "Untitled" if the result is empty after sanitization
+  if (!result) return 'Untitled';
+
+  // 5. Truncate to 100 characters without splitting a word
+  if (result.length > 100) {
+    result = result.substring(0, 100);
+    var lastSpace = result.lastIndexOf(' ');
+    if (lastSpace > 0) {
+      result = result.substring(0, lastSpace);
+    }
+    result = result.trim();
+  }
+
+  // Final safety check — if truncation left nothing
+  return result || 'Untitled';
+}
+
+/**
+ * Derives a filename from the first heading in the editor canvas.
+ * Finds the first h1–h4 element, sanitizes its text content,
+ * and appends the provided extension.
+ * @param {string} extension - File extension including dot (e.g., ".docx")
+ * @returns {string} Derived filename with extension
+ */
+function deriveFilename(extension) {
+  var page = document.getElementById('wr-page');
+  if (!page) return 'Untitled' + extension;
+  var heading = page.querySelector('h1, h2, h3, h4');
+  var text = heading ? (heading.textContent || heading.innerText || '') : '';
+  return sanitizeFilename(text) + extension;
+}
+
+/* ============================================================
    DITA CONVERTER
    [BACKEND: Logic] — XML generation logic migrates to Python (utils.py)
    Functions to extract: convertConcept, convertTask, xEsc
@@ -715,6 +771,91 @@ const CA_RULES = [
 ];
 
 
+/* ── Undo/Redo State ── */
+/* [FRONTEND: UI] — per-issue undo stacks for Content Analysis fixes */
+
+/**
+ * Map of violation index → array of undo entries.
+ * Each entry: { originalText, replacementText, offset }
+ * Maximum 50 entries per violation.
+ * @type {Map<number, Array<{originalText: string, replacementText: string, offset: number}>>}
+ */
+var _caUndoStacks = new Map();
+
+/**
+ * Records an undo entry when a fix is applied.
+ * @param {number} violationIndex - Violation index
+ * @param {string} originalText - Original matched text before the fix
+ * @param {string} replacementText - Replacement text applied
+ * @param {number} offset - Character offset in the text
+ */
+function pushUndoEntry(violationIndex, originalText, replacementText, offset) {
+  if (!_caUndoStacks.has(violationIndex)) {
+    _caUndoStacks.set(violationIndex, []);
+  }
+  var stack = _caUndoStacks.get(violationIndex);
+  // FIFO eviction: drop oldest entry if at capacity
+  if (stack.length >= 50) {
+    stack.shift();
+  }
+  stack.push({ originalText: originalText, replacementText: replacementText, offset: offset });
+}
+
+/**
+ * Clears all undo stacks (called on new analysis or manual text edit).
+ */
+function clearAllUndoStacks() {
+  _caUndoStacks.clear();
+}
+
+/**
+ * Returns the undo stack array for a given violation index, or an empty array if none exists.
+ * @param {number} violationIndex - Violation index
+ * @returns {Array<{originalText: string, replacementText: string, offset: number}>}
+ */
+function getUndoStack(violationIndex) {
+  return _caUndoStacks.get(violationIndex) || [];
+}
+
+/**
+ * Undoes the most recent fix for a specific violation.
+ * Pops the last entry from the undo stack, verifies the text at the recorded offset
+ * matches the replacement, reverts it to the original, pushes a redo entry,
+ * re-renders the annotated text, and updates the issue card UI.
+ * @param {number} violationIndex - Violation index
+ * @returns {boolean} Whether the undo was successful
+ */
+function undoIssueFix(violationIndex) {
+  var stack = getUndoStack(violationIndex);
+  if (stack.length === 0) return false;
+
+  var entry = stack.pop();
+
+  // Conflict detection: verify text at offset matches the replacement
+  var segment = _text.slice(entry.offset, entry.offset + entry.replacementText.length);
+  if (segment !== entry.replacementText) {
+    // Text has changed — discard stale entry
+    // Update UI to reflect potentially empty stack
+    buildPanelCards(_caPanelFilter);
+    return false;
+  }
+
+  // Replace the replacement text back with the original text
+  _text = _text.slice(0, entry.offset) + entry.originalText + _text.slice(entry.offset + entry.replacementText.length);
+
+  // Push a redo entry so the user can re-apply the fix
+  pushRedoEntry(violationIndex, entry.originalText, entry.replacementText, entry.offset);
+
+  // Re-render the annotated text display
+  refreshCADisplay();
+
+  // Update the text input area to stay in sync
+  document.getElementById('caInput').value = _text;
+
+  return true;
+}
+
+
 /* ── Sentence-level checks ── */
 /* [BACKEND: Logic] — sentence analysis migrates to Python (rules.py)
    Functions to extract: checkSentenceLevel */
@@ -1135,6 +1276,14 @@ function computeFixed(text) {
 function applyOneFix(vidx, replacement) {
   var v = _violations[vidx];
   if (!v) return;
+
+  // Record undo entry before modifying text
+  var originalText = _text.slice(v.start, v.end);
+  pushUndoEntry(vidx, originalText, replacement, v.start);
+
+  // Clear redo stack for this violation (new fix invalidates redo history)
+  clearRedoStack(vidx);
+
   var before = _text.slice(0, v.start);
   var after  = _text.slice(v.end);
   _text = (before + replacement + after).replace(/[ \t]{2,}/g,' ').replace(/ ([,.:!?])/g,'$1');
@@ -1271,6 +1420,89 @@ var _text = '', _violations = [], _fixed = '';
 var _ignoredSet = new Set();
 var _caPanelFilter = 'All';
 
+/* ── Per-Issue Redo Stacks ── */
+var _caRedoStacks = new Map(); // Maps violation index → array of redo entries
+
+/**
+ * Pushes a redo entry onto the stack for a specific violation.
+ * Each entry: { originalText, replacementText, offset }
+ * Maximum 50 entries per violation (FIFO eviction of oldest if exceeded).
+ * @param {number} violationIndex - The violation index
+ * @param {string} originalText - The text currently at the position (pre-fix text)
+ * @param {string} replacementText - The text to reapply (the fix that was undone)
+ * @param {number} offset - Character offset in the source text
+ */
+function pushRedoEntry(violationIndex, originalText, replacementText, offset) {
+  if (!_caRedoStacks.has(violationIndex)) {
+    _caRedoStacks.set(violationIndex, []);
+  }
+  var stack = _caRedoStacks.get(violationIndex);
+  stack.push({ originalText: originalText, replacementText: replacementText, offset: offset });
+  // Cap at 50 entries — evict oldest if exceeded
+  if (stack.length > 50) {
+    stack.shift();
+  }
+}
+
+/**
+ * Clears the redo stack for a specific violation.
+ * @param {number} violationIndex - The violation index to clear
+ */
+function clearRedoStack(violationIndex) {
+  _caRedoStacks.delete(violationIndex);
+}
+
+/**
+ * Clears the entire redo stacks Map.
+ */
+function clearAllRedoStacks() {
+  _caRedoStacks.clear();
+}
+
+/**
+ * Returns the redo stack array for a given violation index, or an empty array if none exists.
+ * @param {number} violationIndex - The violation index
+ * @returns {Array<{originalText: string, replacementText: string, offset: number}>}
+ */
+function getRedoStack(violationIndex) {
+  return _caRedoStacks.get(violationIndex) || [];
+}
+
+/**
+ * Redoes the most recently undone fix for a specific violation.
+ * Pops the latest entry from the redo stack, verifies the text at the recorded offset
+ * matches the expected originalText, replaces it with replacementText, pushes an undo entry,
+ * and re-renders the annotated text and issue card UI.
+ * @param {number} violationIndex - The violation index to redo
+ */
+function redoIssueFix(violationIndex) {
+  var stack = getRedoStack(violationIndex);
+  if (stack.length === 0) return;
+
+  var entry = stack.pop();
+
+  // Verify text at offset matches expected originalText (conflict detection)
+  var textAtOffset = _text.substring(entry.offset, entry.offset + entry.originalText.length);
+  if (textAtOffset !== entry.originalText) {
+    // Text has changed — discard entry and notify user
+    if (typeof showNotification === 'function') {
+      showNotification('Redo could not be applied — text has changed');
+    }
+    // Re-render UI to update button states
+    buildPanelCards(_caPanelFilter);
+    return;
+  }
+
+  // Apply the redo: replace originalText with replacementText at the recorded offset
+  _text = _text.substring(0, entry.offset) + entry.replacementText + _text.substring(entry.offset + entry.originalText.length);
+
+  // Push an undo entry so this redo can be undone again
+  pushUndoEntry(violationIndex, entry.originalText, entry.replacementText, entry.offset);
+
+  // Re-render the annotated text
+  refreshCADisplay();
+}
+
 /* ── Docked Panel: Category Filters ── */
 function buildPanelFilters() {
   var filtersEl = document.getElementById('ca-panel-filters');
@@ -1343,6 +1575,14 @@ function buildPanelCards(filterCat) {
         actions += '<button class="btn-sm" style="background:var(--accent);" onclick="showFixPopup(' + i + ',document.querySelector(\'[data-vidx=\\x22' + i + '\\x22]\'),event);event.stopPropagation();">💡</button>';
       }
       actions += '<button class="btn-sm btn-grey" onclick="ignoreFix(' + i + ');event.stopPropagation();">✗</button>';
+
+      // Undo button — enabled only when undo stack has entries for this violation
+      var undoDisabled = getUndoStack(i).length === 0 ? ' disabled' : '';
+      actions += '<button class="btn-sm btn-grey ca-undo-btn" onclick="undoIssueFix(' + i + ');event.stopPropagation();"' + undoDisabled + '>↩ Undo</button>';
+
+      // Redo button — enabled only when redo stack has entries for this violation
+      var redoDisabled = getRedoStack(i).length === 0 ? ' disabled' : '';
+      actions += '<button class="btn-sm btn-grey ca-redo-btn" onclick="redoIssueFix(' + i + ');event.stopPropagation();"' + redoDisabled + '>↪ Redo</button>';
     }
 
     html += '<div class="ca-issue-card' + ignoredClass + '" data-vidx="' + i + '" onclick="panelCardClick(' + i + ')">' +
@@ -1391,6 +1631,10 @@ function runCA() {
   var text = document.getElementById('caInput').value.trim();
   if (!text) { alert('Paste or upload content to analyze.'); return; }
   _text       = text;
+
+  // Clear all undo/redo stacks on new analysis
+  clearAllUndoStacks();
+  clearAllRedoStacks();
 
   // Use backend via Electron IPC if available, otherwise use local JS
   if (window.api && window.api.analyze) {
@@ -1477,6 +1721,44 @@ function downloadFixed() {
   var lines = (_fixed || document.getElementById('ca-fixed-output').innerText).split('\n');
   var doc = new D({ sections:[{ children: lines.map(function(l){ return new P(l); }) }] });
   K.toBlob(doc).then(function(blob){ saveAs(blob, 'fixed_content.docx'); });
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   ZOOM CONTROL
+   [FRONTEND: UI] — zoom state and DOM updates, stays in app.js
+   ═══════════════════════════════════════════════════════════ */
+var _caZoomLevel = 100;
+
+function caZoomIn() {
+  if (_caZoomLevel >= 200) return;
+  _caZoomLevel += 10;
+  caUpdateZoom();
+}
+
+function caZoomOut() {
+  if (_caZoomLevel <= 50) return;
+  _caZoomLevel -= 10;
+  caUpdateZoom();
+}
+
+function caZoomReset() {
+  _caZoomLevel = 100;
+  caUpdateZoom();
+}
+
+function caUpdateZoom() {
+  var annotated = document.getElementById('ca-annotated');
+  if (annotated) {
+    annotated.style.fontSize = _caZoomLevel + '%';
+  }
+  var label = document.getElementById('ca-zoom-label');
+  if (label) label.textContent = _caZoomLevel + '%';
+
+  var zoomIn = document.getElementById('ca-zoom-in');
+  var zoomOut = document.getElementById('ca-zoom-out');
+  if (zoomIn) zoomIn.disabled = (_caZoomLevel >= 200);
+  if (zoomOut) zoomOut.disabled = (_caZoomLevel <= 50);
 }
 
 
@@ -1916,6 +2198,7 @@ function wrApplyStyle(tag) {
 }
 
 /* ── Update word/char/para counts ── */
+var _titleUpdateTimer = null;
 function wrUpdate() {
   var page = document.getElementById('wr-page');
   var raw  = page.innerText || '';
@@ -1925,6 +2208,45 @@ function wrUpdate() {
   document.getElementById('wr-wc').textContent = words;
   document.getElementById('wr-cc').textContent = chars;
   document.getElementById('wr-pc').textContent = paras;
+
+  // Debounced title bar update (500ms)
+  clearTimeout(_titleUpdateTimer);
+  _titleUpdateTimer = setTimeout(updateTitleBar, 500);
+}
+
+/* ── Title bar display ── */
+
+/**
+ * Extracts the document title from the first heading in the editor.
+ * Looks for h1–h4 in #wr-page and returns its text content,
+ * truncated to 60 characters with ellipsis if needed.
+ * @returns {string} Title text or empty string
+ */
+function extractDocumentTitle() {
+  var page = document.getElementById('wr-page');
+  if (!page) return '';
+  var heading = page.querySelector('h1, h2, h3, h4');
+  if (!heading) return '';
+  var text = (heading.textContent || heading.innerText || '').trim();
+  if (!text) return '';
+  if (text.length > 60) text = text.substring(0, 60) + '\u2026';
+  return text;
+}
+
+/**
+ * Updates the document title bar using the extracted title.
+ * Format: "My Document — Documentation Tool" or just "Documentation Tool" if no heading.
+ * Also sends the title via IPC if available (Electron environment).
+ */
+function updateTitleBar() {
+  var title = extractDocumentTitle();
+  var appName = 'Documentation Tool';
+  var fullTitle = title ? title + ' \u2014 ' + appName : appName;
+  document.title = fullTitle;
+  // Also try IPC if available
+  if (window.api && window.api.setTitle) {
+    window.api.setTitle(fullTitle);
+  }
 }
 
 /* ── Update toolbar active states ── */
@@ -1962,6 +2284,7 @@ function wrNew() {
   }
   document.getElementById('wr-page').innerHTML = '<p><br></p>';
   wrUpdate();
+  updateTitleBar();
 }
 
 /* ── Open file ── */
@@ -2034,7 +2357,7 @@ function wrSaveDocx() {
   if (!children.length) children.push(new P({ children:[new R('')] }));
 
   var doc = new D({ sections:[{ children: children }] });
-  K.toBlob(doc).then(function(blob){ saveAs(blob, 'document.docx'); });
+  K.toBlob(doc).then(function(blob){ saveAs(blob, deriveFilename('.docx')); });
 
   var msg = document.getElementById('wr-saved-msg');
   msg.style.display = 'inline';
@@ -2045,7 +2368,7 @@ function wrSaveDocx() {
 function wrSaveTxt() {
   var txt = document.getElementById('wr-page').innerText || '';
   var blob = new Blob([txt], { type: 'text/plain' });
-  saveAs(blob, 'document.txt');
+  saveAs(blob, deriveFilename('.txt'));
 }
 
 /* ── Print ── */
@@ -2242,6 +2565,22 @@ document.addEventListener('keydown', function(e) {
 document.addEventListener('DOMContentLoaded', function() {
   wrUpdate();
   wrLoadComments();
+  updateTitleBar();
+
+  // Focus the editor canvas after a short delay to ensure DOM is ready (Req 1.3)
+  setTimeout(function() {
+    var editor = document.getElementById('wr-page');
+    if (editor) editor.focus();
+  }, 50);
+
+  // Clear undo/redo stacks when user manually edits the CA text input (Req 4.8)
+  var caInputEl = document.getElementById('caInput');
+  if (caInputEl) {
+    caInputEl.addEventListener('input', function() {
+      clearAllUndoStacks();
+      clearAllRedoStacks();
+    });
+  }
 
   // Listen for backend crash notifications (Electron only)
   if (window.api && window.api.onBackendError) {

@@ -41,6 +41,12 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('impact-analyze', jiraItems, ditaTopics, threshold),
 
   /**
+   * Set the Electron window title bar text.
+   * @param {string} title - Title to display in the window title bar
+   */
+  setTitle: (title) => ipcRenderer.send('set-title', title),
+
+  /**
    * Listen for backend error events.
    * @param {function} callback - Called with error info
    */

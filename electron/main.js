@@ -192,6 +192,12 @@ function shutdownBackend() {
 // IPC HANDLERS — wrap errors so renderer always gets a structured response
 // =============================================================================
 
+ipcMain.on('set-title', (event, title) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setTitle(title);
+  }
+});
+
 ipcMain.handle('analyze', async (event, text) => {
   try {
     return await sendToBackend('analyze', { text });

@@ -39,17 +39,17 @@
 
 <!-- TABS -->
 <div class="tabs">
-  <span class="tab active" onclick="openTab('converter',event)">DOC to DITA</span>
+  <span class="tab"        onclick="openTab('converter',event)">DOC to DITA</span>
   <!-- Temporarily disabled — reserved for future release -->
   <!-- <span class="tab"        onclick="openTab('analyzer',event)">Impact Analyzer</span> -->
   <span class="tab"        onclick="openTab('contentAnalysis',event)">Content Analysis</span>
-  <span class="tab"        onclick="openTab('rewrite',event)">Initial Draft</span>
+  <span class="tab active" onclick="openTab('rewrite',event)">Initial Draft</span>
 </div>
 
 <!-- ═══════════════════════════════════════════════
      TAB 1: DITA CONVERTER
      ═══════════════════════════════════════════════ -->
-<div id="converter" class="section">
+<div id="converter" class="section" style="display:none">
   <h2>DOC to DITA Converter</h2>
   <textarea id="docInput" placeholder="Paste document content"></textarea>
   <br>
@@ -210,6 +210,14 @@
           <div class="ca-legend-item"><span class="leg-dot" style="background:#dbeafe;border:1px solid #3b82f6;"></span>Structure</div>
         </div>
 
+        <!-- Zoom Control -->
+        <div class="ca-zoom-control" id="ca-zoom-control">
+          <button class="ca-zoom-btn" id="ca-zoom-out" onclick="caZoomOut()" title="Zoom out">−</button>
+          <span class="ca-zoom-label" id="ca-zoom-label">100%</span>
+          <button class="ca-zoom-btn" id="ca-zoom-in" onclick="caZoomIn()" title="Zoom in">+</button>
+          <button class="ca-zoom-btn ca-zoom-reset" id="ca-zoom-reset" onclick="caZoomReset()" title="Reset zoom">Reset</button>
+        </div>
+
         <!-- Annotated Text -->
         <div class="annotated-hint"><span>💡</span> Click any colored word to open the inline fix panel.</div>
         <div id="ca-annotated"></div>
@@ -266,7 +274,7 @@
 <!-- ═══════════════════════════════════════════════
      TAB 4: WRITE (lightweight Word processor)
      ═══════════════════════════════════════════════ -->
-<div id="rewrite" class="section" style="display:none;padding:0;">
+<div id="rewrite" class="section" style="padding:0;">
 
   <!-- ── Menu bar ── -->
   <div id="wr-menubar" style="display:flex;align-items:center;gap:0;background:#f3f3f3;border-bottom:1px solid #d0d0d0;padding:4px 10px;flex-wrap:wrap;">
