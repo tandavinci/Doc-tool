@@ -189,6 +189,8 @@
   <div style="margin-top:10px;">
     <button onclick="runCA()">Analyze Content</button>
     <button class="btn-grey" onclick="clearCA()">Clear</button>
+    <button class="btn-grey" onclick="caGlobalUndo()" id="ca-undo-btn" title="Undo last fix (Ctrl+Z)">↩ Undo</button>
+    <button class="btn-grey" onclick="caGlobalRedo()" id="ca-redo-btn" title="Redo last undone fix (Ctrl+Y)">↪ Redo</button>
   </div>
 
   <!-- ── RESULTS ── -->
@@ -210,17 +212,11 @@
           <div class="ca-legend-item"><span class="leg-dot" style="background:#dbeafe;border:1px solid #3b82f6;"></span>Structure</div>
         </div>
 
-        <!-- Zoom Control -->
-        <div class="ca-zoom-control" id="ca-zoom-control">
-          <button class="ca-zoom-btn" id="ca-zoom-out" onclick="caZoomOut()" title="Zoom out">−</button>
-          <span class="ca-zoom-label" id="ca-zoom-label">100%</span>
-          <button class="ca-zoom-btn" id="ca-zoom-in" onclick="caZoomIn()" title="Zoom in">+</button>
-          <button class="ca-zoom-btn ca-zoom-reset" id="ca-zoom-reset" onclick="caZoomReset()" title="Reset zoom">Reset</button>
-        </div>
+
 
         <!-- Annotated Text -->
         <div class="annotated-hint"><span>💡</span> Click any colored word to open the inline fix panel.</div>
-        <div id="ca-annotated"></div>
+        <div id="ca-annotated" contenteditable="true" spellcheck="false"></div>
 
         <!-- Apply All / Download -->
         <div style="margin-top:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">

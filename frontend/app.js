@@ -772,15 +772,10 @@ const CA_RULES = [
 
 
 /* ── Undo/Redo State ── */
-/* [FRONTEND: UI] — per-issue undo stacks for Content Analysis fixes */
+/* [FRONTEND: UI] — global undo/redo stacks for Content Analysis fixes */
 
-/**
- * Map of violation index → array of undo entries.
- * Each entry: { originalText, replacementText, offset }
- * Maximum 50 entries per violation.
- * @type {Map<number, Array<{originalText: string, replacementText: string, offset: number}>>}
- */
-var _caUndoStacks = new Map();
+var _caGlobalUndoStack = [];
+var _caGlobalRedoStack = [];
 
 /**
  * Records an undo entry when a fix is applied.
@@ -790,69 +785,64 @@ var _caUndoStacks = new Map();
  * @param {number} offset - Character offset in the text
  */
 function pushUndoEntry(violationIndex, originalText, replacementText, offset) {
-  if (!_caUndoStacks.has(violationIndex)) {
-    _caUndoStacks.set(violationIndex, []);
-  }
-  var stack = _caUndoStacks.get(violationIndex);
-  // FIFO eviction: drop oldest entry if at capacity
-  if (stack.length >= 50) {
-    stack.shift();
-  }
-  stack.push({ originalText: originalText, replacementText: replacementText, offset: offset });
+  _caGlobalUndoStack.push({ violationIndex: violationIndex, originalText: originalText, replacementText: replacementText, offset: offset });
+  _caGlobalRedoStack = [];
 }
 
 /**
- * Clears all undo stacks (called on new analysis or manual text edit).
+ * Clears all undo/redo stacks (called on new analysis or manual text edit).
  */
 function clearAllUndoStacks() {
-  _caUndoStacks.clear();
+  _caGlobalUndoStack = [];
+  _caGlobalRedoStack = [];
 }
 
 /**
- * Returns the undo stack array for a given violation index, or an empty array if none exists.
- * @param {number} violationIndex - Violation index
- * @returns {Array<{originalText: string, replacementText: string, offset: number}>}
+ * Global undo: reverts the most recent CA fix action.
  */
-function getUndoStack(violationIndex) {
-  return _caUndoStacks.get(violationIndex) || [];
-}
-
-/**
- * Undoes the most recent fix for a specific violation.
- * Pops the last entry from the undo stack, verifies the text at the recorded offset
- * matches the replacement, reverts it to the original, pushes a redo entry,
- * re-renders the annotated text, and updates the issue card UI.
- * @param {number} violationIndex - Violation index
- * @returns {boolean} Whether the undo was successful
- */
-function undoIssueFix(violationIndex) {
-  var stack = getUndoStack(violationIndex);
-  if (stack.length === 0) return false;
-
-  var entry = stack.pop();
-
-  // Conflict detection: verify text at offset matches the replacement
-  var segment = _text.slice(entry.offset, entry.offset + entry.replacementText.length);
-  if (segment !== entry.replacementText) {
-    // Text has changed — discard stale entry
-    // Update UI to reflect potentially empty stack
-    buildPanelCards(_caPanelFilter);
-    return false;
+function caGlobalUndo() {
+  if (_caGlobalUndoStack.length === 0) return;
+  var entry = _caGlobalUndoStack.pop();
+  // Handle full text swap entries (from contenteditable manual edits)
+  if (entry.isFullTextSwap) {
+    _text = entry.originalText;
+    _caGlobalRedoStack.push(entry);
+    document.getElementById('caInput').value = _text;
+    rerunCA();
+    return;
   }
-
-  // Replace the replacement text back with the original text
-  _text = _text.slice(0, entry.offset) + entry.originalText + _text.slice(entry.offset + entry.replacementText.length);
-
-  // Push a redo entry so the user can re-apply the fix
-  pushRedoEntry(violationIndex, entry.originalText, entry.replacementText, entry.offset);
-
-  // Re-render the annotated text display
-  refreshCADisplay();
-
-  // Update the text input area to stay in sync
+  // Verify text at offset matches replacement
+  var textAtOffset = _text.substring(entry.offset, entry.offset + entry.replacementText.length);
+  if (textAtOffset !== entry.replacementText) return; // stale entry
+  // Revert: replace replacementText with originalText
+  _text = _text.substring(0, entry.offset) + entry.originalText + _text.substring(entry.offset + entry.replacementText.length);
+  _caGlobalRedoStack.push(entry);
   document.getElementById('caInput').value = _text;
+  rerunCA();
+}
 
-  return true;
+/**
+ * Global redo: re-applies the most recently undone CA fix action.
+ */
+function caGlobalRedo() {
+  if (_caGlobalRedoStack.length === 0) return;
+  var entry = _caGlobalRedoStack.pop();
+  // Handle full text swap entries (from contenteditable manual edits)
+  if (entry.isFullTextSwap) {
+    _text = entry.replacementText;
+    _caGlobalUndoStack.push(entry);
+    document.getElementById('caInput').value = _text;
+    rerunCA();
+    return;
+  }
+  // Verify text at offset matches original
+  var textAtOffset = _text.substring(entry.offset, entry.offset + entry.originalText.length);
+  if (textAtOffset !== entry.originalText) return; // stale entry
+  // Re-apply: replace originalText with replacementText
+  _text = _text.substring(0, entry.offset) + entry.replacementText + _text.substring(entry.offset + entry.originalText.length);
+  _caGlobalUndoStack.push(entry);
+  document.getElementById('caInput').value = _text;
+  rerunCA();
 }
 
 
@@ -1279,10 +1269,8 @@ function applyOneFix(vidx, replacement) {
 
   // Record undo entry before modifying text
   var originalText = _text.slice(v.start, v.end);
-  pushUndoEntry(vidx, originalText, replacement, v.start);
-
-  // Clear redo stack for this violation (new fix invalidates redo history)
-  clearRedoStack(vidx);
+  _caGlobalUndoStack.push({ violationIndex: vidx, originalText: originalText, replacementText: replacement, offset: v.start });
+  _caGlobalRedoStack = []; // new action clears redo
 
   var before = _text.slice(0, v.start);
   var after  = _text.slice(v.end);
@@ -1420,88 +1408,7 @@ var _text = '', _violations = [], _fixed = '';
 var _ignoredSet = new Set();
 var _caPanelFilter = 'All';
 
-/* ── Per-Issue Redo Stacks ── */
-var _caRedoStacks = new Map(); // Maps violation index → array of redo entries
 
-/**
- * Pushes a redo entry onto the stack for a specific violation.
- * Each entry: { originalText, replacementText, offset }
- * Maximum 50 entries per violation (FIFO eviction of oldest if exceeded).
- * @param {number} violationIndex - The violation index
- * @param {string} originalText - The text currently at the position (pre-fix text)
- * @param {string} replacementText - The text to reapply (the fix that was undone)
- * @param {number} offset - Character offset in the source text
- */
-function pushRedoEntry(violationIndex, originalText, replacementText, offset) {
-  if (!_caRedoStacks.has(violationIndex)) {
-    _caRedoStacks.set(violationIndex, []);
-  }
-  var stack = _caRedoStacks.get(violationIndex);
-  stack.push({ originalText: originalText, replacementText: replacementText, offset: offset });
-  // Cap at 50 entries — evict oldest if exceeded
-  if (stack.length > 50) {
-    stack.shift();
-  }
-}
-
-/**
- * Clears the redo stack for a specific violation.
- * @param {number} violationIndex - The violation index to clear
- */
-function clearRedoStack(violationIndex) {
-  _caRedoStacks.delete(violationIndex);
-}
-
-/**
- * Clears the entire redo stacks Map.
- */
-function clearAllRedoStacks() {
-  _caRedoStacks.clear();
-}
-
-/**
- * Returns the redo stack array for a given violation index, or an empty array if none exists.
- * @param {number} violationIndex - The violation index
- * @returns {Array<{originalText: string, replacementText: string, offset: number}>}
- */
-function getRedoStack(violationIndex) {
-  return _caRedoStacks.get(violationIndex) || [];
-}
-
-/**
- * Redoes the most recently undone fix for a specific violation.
- * Pops the latest entry from the redo stack, verifies the text at the recorded offset
- * matches the expected originalText, replaces it with replacementText, pushes an undo entry,
- * and re-renders the annotated text and issue card UI.
- * @param {number} violationIndex - The violation index to redo
- */
-function redoIssueFix(violationIndex) {
-  var stack = getRedoStack(violationIndex);
-  if (stack.length === 0) return;
-
-  var entry = stack.pop();
-
-  // Verify text at offset matches expected originalText (conflict detection)
-  var textAtOffset = _text.substring(entry.offset, entry.offset + entry.originalText.length);
-  if (textAtOffset !== entry.originalText) {
-    // Text has changed — discard entry and notify user
-    if (typeof showNotification === 'function') {
-      showNotification('Redo could not be applied — text has changed');
-    }
-    // Re-render UI to update button states
-    buildPanelCards(_caPanelFilter);
-    return;
-  }
-
-  // Apply the redo: replace originalText with replacementText at the recorded offset
-  _text = _text.substring(0, entry.offset) + entry.replacementText + _text.substring(entry.offset + entry.originalText.length);
-
-  // Push an undo entry so this redo can be undone again
-  pushUndoEntry(violationIndex, entry.originalText, entry.replacementText, entry.offset);
-
-  // Re-render the annotated text
-  refreshCADisplay();
-}
 
 /* ── Docked Panel: Category Filters ── */
 function buildPanelFilters() {
@@ -1575,14 +1482,6 @@ function buildPanelCards(filterCat) {
         actions += '<button class="btn-sm" style="background:var(--accent);" onclick="showFixPopup(' + i + ',document.querySelector(\'[data-vidx=\\x22' + i + '\\x22]\'),event);event.stopPropagation();">💡</button>';
       }
       actions += '<button class="btn-sm btn-grey" onclick="ignoreFix(' + i + ');event.stopPropagation();">✗</button>';
-
-      // Undo button — enabled only when undo stack has entries for this violation
-      var undoDisabled = getUndoStack(i).length === 0 ? ' disabled' : '';
-      actions += '<button class="btn-sm btn-grey ca-undo-btn" onclick="undoIssueFix(' + i + ');event.stopPropagation();"' + undoDisabled + '>↩ Undo</button>';
-
-      // Redo button — enabled only when redo stack has entries for this violation
-      var redoDisabled = getRedoStack(i).length === 0 ? ' disabled' : '';
-      actions += '<button class="btn-sm btn-grey ca-redo-btn" onclick="redoIssueFix(' + i + ');event.stopPropagation();"' + redoDisabled + '>↪ Redo</button>';
     }
 
     html += '<div class="ca-issue-card' + ignoredClass + '" data-vidx="' + i + '" onclick="panelCardClick(' + i + ')">' +
@@ -1634,7 +1533,6 @@ function runCA() {
 
   // Clear all undo/redo stacks on new analysis
   clearAllUndoStacks();
-  clearAllRedoStacks();
 
   // Use backend via Electron IPC if available, otherwise use local JS
   if (window.api && window.api.analyze) {
@@ -1725,41 +1623,40 @@ function downloadFixed() {
 
 
 /* ═══════════════════════════════════════════════════════════
-   ZOOM CONTROL
+   ZOOM CONTROL — Ctrl+Scroll Wheel
    [FRONTEND: UI] — zoom state and DOM updates, stays in app.js
    ═══════════════════════════════════════════════════════════ */
-var _caZoomLevel = 100;
+var _appZoomLevel = 100;
 
-function caZoomIn() {
-  if (_caZoomLevel >= 200) return;
-  _caZoomLevel += 10;
-  caUpdateZoom();
-}
-
-function caZoomOut() {
-  if (_caZoomLevel <= 50) return;
-  _caZoomLevel -= 10;
-  caUpdateZoom();
-}
-
-function caZoomReset() {
-  _caZoomLevel = 100;
-  caUpdateZoom();
-}
-
-function caUpdateZoom() {
-  var annotated = document.getElementById('ca-annotated');
-  if (annotated) {
-    annotated.style.fontSize = _caZoomLevel + '%';
+document.addEventListener('wheel', function(e) {
+  if (!e.ctrlKey) return; // normal scroll — do nothing
+  e.preventDefault();
+  if (e.deltaY < 0) {
+    _appZoomLevel = Math.min(_appZoomLevel + 10, 200);
+  } else {
+    _appZoomLevel = Math.max(_appZoomLevel - 10, 50);
   }
-  var label = document.getElementById('ca-zoom-label');
-  if (label) label.textContent = _caZoomLevel + '%';
+  // Apply zoom to the active tab's content
+  document.body.style.zoom = _appZoomLevel / 100;
+}, { passive: false });
 
-  var zoomIn = document.getElementById('ca-zoom-in');
-  var zoomOut = document.getElementById('ca-zoom-out');
-  if (zoomIn) zoomIn.disabled = (_caZoomLevel >= 200);
-  if (zoomOut) zoomOut.disabled = (_caZoomLevel <= 50);
-}
+/* ═══════════════════════════════════════════════════════════
+   GLOBAL UNDO/REDO — Ctrl+Z / Ctrl+Y (Content Analysis tab only)
+   [FRONTEND: UI] — keyboard shortcut handling, stays in app.js
+   ═══════════════════════════════════════════════════════════ */
+document.addEventListener('keydown', function(e) {
+  // Only intercept in Content Analysis tab
+  var caTab = document.getElementById('contentAnalysis');
+  if (!caTab || caTab.style.display === 'none') return;
+
+  if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {
+    e.preventDefault();
+    caGlobalUndo();
+  } else if (e.ctrlKey && e.key === 'y') {
+    e.preventDefault();
+    caGlobalRedo();
+  }
+});
 
 
 /* ═══════════════════════════════════════════════════════════
@@ -2578,7 +2475,22 @@ document.addEventListener('DOMContentLoaded', function() {
   if (caInputEl) {
     caInputEl.addEventListener('input', function() {
       clearAllUndoStacks();
-      clearAllRedoStacks();
+    });
+  }
+
+  // Sync manual edits in annotated area back to _text and undo stack
+  var caAnnotated = document.getElementById('ca-annotated');
+  if (caAnnotated) {
+    caAnnotated.addEventListener('input', function() {
+      var oldText = _text;
+      // Get plain text from the contenteditable div
+      _text = caAnnotated.innerText || caAnnotated.textContent || '';
+      document.getElementById('caInput').value = _text;
+      // Record the edit in undo stack (simplified: store full text swap)
+      if (oldText !== _text) {
+        _caGlobalUndoStack.push({ violationIndex: -1, originalText: oldText, replacementText: _text, offset: 0, isFullTextSwap: true });
+        _caGlobalRedoStack = [];
+      }
     });
   }
 
