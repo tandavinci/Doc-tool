@@ -1,11 +1,13 @@
 /**
  * Electron Main Process
  *
- * - Creates BrowserWindow loading frontend/index.html
+ * - Shows native splash window immediately on startup
+ * - Creates main BrowserWindow hidden, loading frontend/index.html
  * - Spawns persistent Python backend (backend/protocol.py)
  * - Maintains request/response mapping via request IDs
  * - Forwards IPC requests from renderer to Python stdin
  * - Forwards Python stdout responses back to renderer
+ * - Once backend ready + frontend loaded: closes splash, shows main window
  * - Terminates Python cleanly on app close
  * - Prevents orphan processes
  */
@@ -15,11 +17,16 @@ const { spawn } = require('child_process');
 const path = require('path');
 const readline = require('readline');
 
+let splashWindow = null;
 let mainWindow = null;
 let pythonProcess = null;
 let requestId = 0;
 let pendingRequests = new Map(); // id -> { resolve, reject }
 let backendReady = false;
+let frontendReady = false;
+
+// Application icon path
+const iconPath = path.join(__dirname, '..', 'assets', 'app-icon.ico');
 
 // =============================================================================
 // PYTHON BACKEND MANAGEMENT
@@ -75,6 +82,7 @@ function spawnBackend() {
       if (response.status === 'ready') {
         backendReady = true;
         console.log('[main] Backend ready');
+        onReadyCheck();
         return;
       }
 
@@ -189,8 +197,43 @@ function shutdownBackend() {
 }
 
 // =============================================================================
+// STARTUP COORDINATION
+// =============================================================================
+
+/**
+ * Called when either backend becomes ready or frontend finishes loading.
+ * When BOTH are ready: close splash, show main window, notify renderer.
+ */
+function onReadyCheck() {
+  if (!backendReady || !frontendReady) return;
+
+  console.log('[main] Both backend and frontend ready — showing main window');
+
+  // Notify renderer that backend is ready
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('backend-ready');
+  }
+
+  // Show main window
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+  }
+
+  // Close splash
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    splashWindow.close();
+    splashWindow = null;
+  }
+}
+
+// =============================================================================
 // IPC HANDLERS — wrap errors so renderer always gets a structured response
 // =============================================================================
+
+// Allow renderer to poll backend status (belt-and-suspenders for race conditions)
+ipcMain.handle('get-backend-status', async () => {
+  return { ready: backendReady };
+});
 
 ipcMain.handle('analyze', async (event, text) => {
   try {
@@ -228,10 +271,36 @@ ipcMain.handle('impact-analyze', async (event, jiraItems, ditaTopics, threshold)
 // WINDOW CREATION
 // =============================================================================
 
-function createWindow() {
+function createSplashWindow() {
+  splashWindow = new BrowserWindow({
+    width: 360,
+    height: 280,
+    frame: false,
+    resizable: false,
+    movable: true,
+    center: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    transparent: false,
+    backgroundColor: '#f6f8fa',
+    icon: iconPath,
+    show: true,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  splashWindow.loadFile(path.join(__dirname, 'splash.html'));
+  splashWindow.setMenu(null);
+}
+
+function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 900,
+    show: false, // Hidden until both backend + frontend are ready
+    icon: iconPath,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -241,6 +310,13 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, '..', 'frontend', 'index.html'));
+
+  // Mark frontend as ready once the page finishes loading
+  mainWindow.webContents.once('did-finish-load', () => {
+    console.log('[main] Frontend finished loading');
+    frontendReady = true;
+    onReadyCheck();
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -252,12 +328,30 @@ function createWindow() {
 // =============================================================================
 
 app.whenReady().then(() => {
+  // Show splash immediately
+  createSplashWindow();
+
+  // Start backend and main window in parallel
   spawnBackend();
-  createWindow();
+  createMainWindow();
+
+  // Safety timeout: if startup takes too long, show main window anyway
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isVisible()) {
+      console.log('[main] Safety timeout — showing main window');
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.show();
+      }
+      if (splashWindow && !splashWindow.isDestroyed()) {
+        splashWindow.close();
+        splashWindow = null;
+      }
+    }
+  }, 15000);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+      createMainWindow();
     }
   });
 });

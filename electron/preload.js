@@ -47,4 +47,18 @@ contextBridge.exposeInMainWorld('api', {
   onBackendError: (callback) => {
     ipcRenderer.on('backend-error', (event, data) => callback(data));
   },
+
+  /**
+   * Listen for backend ready event.
+   * @param {function} callback - Called when backend is ready
+   */
+  onBackendReady: (callback) => {
+    ipcRenderer.on('backend-ready', (event) => callback());
+  },
+
+  /**
+   * Poll backend status (fallback for race conditions).
+   * @returns {Promise<object>} - { ready: boolean }
+   */
+  getBackendStatus: () => ipcRenderer.invoke('get-backend-status'),
 });

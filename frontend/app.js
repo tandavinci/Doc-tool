@@ -1866,7 +1866,9 @@ function toggleRwLog() {
 }
 
 /* [FRONTEND: UI] — rewrite file upload handling with mammoth.js, stays in app.js */
-document.getElementById('rwFile').addEventListener('change', function(e) {
+var _rwFileEl = document.getElementById('rwFile');
+if (_rwFileEl) {
+_rwFileEl.addEventListener('change', function(e) {
   var file = e.target.files[0];
   if (!file) return;
   if (file.name.endsWith('.docx')) {
@@ -1882,6 +1884,7 @@ document.getElementById('rwFile').addEventListener('change', function(e) {
     r2.readAsText(file);
   }
 });
+}
 
 /* ============================================================
    WRITE TAB — lightweight offline Word processor
@@ -2242,6 +2245,70 @@ document.addEventListener('keydown', function(e) {
 document.addEventListener('DOMContentLoaded', function() {
   wrUpdate();
   wrLoadComments();
+
+  // ── Backend-ready state management ──
+  // Native splash window handles the visual loading screen.
+  // This code manages disabling/enabling backend-dependent buttons.
+  (function initBackendState() {
+    var backendButtons = [];
+    var backendIsReady = false;
+
+    function collectBackendButtons() {
+      document.querySelectorAll('button').forEach(function(btn) {
+        var onclick = btn.getAttribute('onclick') || '';
+        if (onclick.match(/\b(runAnalysis|runRewrite|convertConcept|convertTask|runImpactAnalysis)\b/)) {
+          backendButtons.push(btn);
+        }
+      });
+    }
+
+    function setBackendPending() {
+      collectBackendButtons();
+      backendButtons.forEach(function(btn) {
+        btn.classList.add('backend-pending');
+        btn.setAttribute('data-backend-pending', 'true');
+      });
+    }
+
+    function setBackendReady() {
+      if (backendIsReady) return;
+      backendIsReady = true;
+      console.log('[app] Backend ready — enabling controls');
+      backendButtons.forEach(function(btn) {
+        btn.classList.remove('backend-pending');
+        btn.removeAttribute('data-backend-pending');
+      });
+    }
+
+    if (window.api && window.api.onBackendReady) {
+      // Running in Electron — disable buttons until backend is ready
+      setBackendPending();
+
+      window.api.onBackendReady(function() {
+        console.log('[app] backend-ready event received');
+        setBackendReady();
+      });
+
+      // Poll backend status as fallback
+      if (window.api.getBackendStatus) {
+        window.api.getBackendStatus().then(function(status) {
+          if (status && status.ready) {
+            console.log('[app] Backend already ready (detected via poll)');
+            setBackendReady();
+          }
+        });
+      }
+
+      // Safety timeout
+      setTimeout(function() {
+        if (!backendIsReady) {
+          console.log('[app] Safety timeout — enabling controls');
+          setBackendReady();
+        }
+      }, 15000);
+    }
+    // In browser-only mode: buttons remain enabled (no backend-pending state)
+  })();
 
   // Listen for backend crash notifications (Electron only)
   if (window.api && window.api.onBackendError) {

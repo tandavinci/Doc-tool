@@ -7,7 +7,7 @@
     "start": "electron .",
     "dev": "electron . --dev",
     "build-backend": "pyinstaller --distpath ./backend-dist --workpath ./build-backend --clean backend.spec",
-    "dist": "npm run build-backend && electron-builder --win",
+    "dist": "npm run build-backend && electron-builder --win portable",
     "dist-portable": "npm run build-backend && electron-builder --win portable",
     "pack": "electron-builder --dir"
   },
@@ -37,21 +37,11 @@
     "win": {
       "target": [
         {
-          "target": "nsis",
-          "arch": ["x64"]
-        },
-        {
           "target": "portable",
           "arch": ["x64"]
         }
       ],
-      "icon": null
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "icon": "assets/app-icon.ico"
     },
     "portable": {
       "artifactName": "${productName}-Portable-${version}.${ext}"
