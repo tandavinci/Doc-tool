@@ -3298,7 +3298,7 @@ const MD_MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
 
 /* ── Initialization ── */
 (function mdInit() {
-  document.addEventListener('DOMContentLoaded', function() {
+  function setup() {
     var dropArea = document.getElementById('md-drop-area');
     var fileInput = document.getElementById('md-file-input');
     var urlInput = document.getElementById('md-url-input');
@@ -3332,7 +3332,14 @@ const MD_MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
     urlInput.addEventListener('input', function() {
       mdUpdateConvertBtn();
     });
-  });
+  }
+
+  // Run setup immediately if DOM is ready, otherwise wait
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setup);
+  } else {
+    setup();
+  }
 })();
 
 function mdHandleFile(file) {
@@ -3383,6 +3390,12 @@ async function mdConvert() {
   var urlInput = document.getElementById('md-url-input');
 
   if (!_mdSelectedFile && !urlInput.value.trim()) return;
+
+  // Check if API is available
+  if (!window.api || !window.api.markitdownConvert) {
+    mdShowAlert('Error: Backend API not available. Ensure the app is running in Electron.', 'error');
+    return;
+  }
 
   // Show loading
   document.getElementById('md-loading').style.display = 'block';
