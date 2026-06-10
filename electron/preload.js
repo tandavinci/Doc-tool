@@ -41,6 +41,13 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('impact-analyze', jiraItems, ditaTopics, threshold),
 
   /**
+   * Convert a file or URL to Markdown using MarkItDown.
+   * @param {object} payload - { mode: 'file'|'url', filename, fileData, url }
+   * @returns {Promise<object>} - { success, data: { markdown, filename } }
+   */
+  markitdownConvert: (payload) => ipcRenderer.invoke('markitdown-convert', payload),
+
+  /**
    * Set the Electron window title bar text.
    * @param {string} title - Title to display in the window title bar
    */

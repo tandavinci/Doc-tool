@@ -230,6 +230,14 @@ ipcMain.handle('impact-analyze', async (event, jiraItems, ditaTopics, threshold)
   }
 });
 
+ipcMain.handle('markitdown-convert', async (event, payload) => {
+  try {
+    return await sendToBackend('markitdown', payload);
+  } catch (e) {
+    return { id: null, success: false, error: { code: 'IPC_ERROR', message: e.message } };
+  }
+});
+
 // =============================================================================
 // WINDOW CREATION
 // =============================================================================

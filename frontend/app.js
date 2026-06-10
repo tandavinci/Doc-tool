@@ -16,7 +16,7 @@
    [FRONTEND: UI] — DOM manipulation, stays in app.js
    ============================================================ */
 function openTab(id, e) {
-  ['converter','analyzer','contentAnalysis','rewrite'].forEach(t =>
+  ['converter','analyzer','contentAnalysis','rewrite','markitdown'].forEach(t =>
     document.getElementById(t).style.display = 'none');
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   e.target.classList.add('active');
@@ -3277,3 +3277,320 @@ function wrLoadComments() {
 }
 
 /* ── Hide comment button — no-op (floating button removed) ── */
+
+
+/* ============================================================
+   MARKITDOWN — File/URL to Markdown Converter
+   [FRONTEND: UI] — File handling, IPC calls, result display
+   ============================================================ */
+
+var _mdSelectedFile = null;
+var _mdMarkdownContent = '';
+var _mdOutputFilename = '';
+
+const MD_SUPPORTED_EXTENSIONS = [
+  '.pdf','.docx','.pptx','.xlsx','.html','.htm',
+  '.png','.jpg','.jpeg','.gif','.bmp','.tiff',
+  '.mp3','.wav','.epub','.msg','.ipynb','.zip',
+  '.csv','.json','.xml','.txt','.md','.rst'
+];
+const MD_MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+
+/* ── Initialization ── */
+(function mdInit() {
+  document.addEventListener('DOMContentLoaded', function() {
+    var dropArea = document.getElementById('md-drop-area');
+    var fileInput = document.getElementById('md-file-input');
+    var urlInput = document.getElementById('md-url-input');
+
+    if (!dropArea) return; // Tab not present
+
+    // Drag & drop
+    dropArea.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      dropArea.classList.add('dragover');
+    });
+    dropArea.addEventListener('dragleave', function() {
+      dropArea.classList.remove('dragover');
+    });
+    dropArea.addEventListener('drop', function(e) {
+      e.preventDefault();
+      dropArea.classList.remove('dragover');
+      if (e.dataTransfer.files.length > 0) {
+        mdHandleFile(e.dataTransfer.files[0]);
+      }
+    });
+
+    // File input change
+    fileInput.addEventListener('change', function() {
+      if (fileInput.files.length > 0) {
+        mdHandleFile(fileInput.files[0]);
+      }
+    });
+
+    // URL input — enable/disable convert button
+    urlInput.addEventListener('input', function() {
+      mdUpdateConvertBtn();
+    });
+  });
+})();
+
+function mdHandleFile(file) {
+  mdHideAlert();
+
+  // Validate extension
+  var ext = '.' + file.name.split('.').pop().toLowerCase();
+  if (MD_SUPPORTED_EXTENSIONS.indexOf(ext) === -1) {
+    mdShowAlert('Unsupported file type. Supported: ' + MD_SUPPORTED_EXTENSIONS.join(', '), 'error');
+    return;
+  }
+
+  // Validate size
+  if (file.size > MD_MAX_FILE_SIZE) {
+    mdShowAlert('File size exceeds the 50 MB limit.', 'error');
+    return;
+  }
+
+  _mdSelectedFile = file;
+  document.getElementById('md-file-name').textContent = file.name;
+  document.getElementById('md-file-size').textContent = mdFormatSize(file.size);
+  document.getElementById('md-file-info').style.display = 'block';
+  mdUpdateConvertBtn();
+}
+
+function mdClearFile() {
+  _mdSelectedFile = null;
+  document.getElementById('md-file-input').value = '';
+  document.getElementById('md-file-info').style.display = 'none';
+  mdUpdateConvertBtn();
+}
+
+function mdUpdateConvertBtn() {
+  var urlInput = document.getElementById('md-url-input');
+  var btn = document.getElementById('md-convert-btn');
+  btn.disabled = !(_mdSelectedFile || (urlInput && urlInput.value.trim()));
+}
+
+function mdFormatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+/* ── Convert ── */
+async function mdConvert() {
+  mdHideAlert();
+  var urlInput = document.getElementById('md-url-input');
+
+  if (!_mdSelectedFile && !urlInput.value.trim()) return;
+
+  // Show loading
+  document.getElementById('md-loading').style.display = 'block';
+  document.getElementById('md-convert-btn').disabled = true;
+  document.getElementById('md-output').style.display = 'none';
+
+  try {
+    var response;
+
+    if (_mdSelectedFile) {
+      // File conversion — read file as base64, send via IPC
+      var fileData = await mdFileToBase64(_mdSelectedFile);
+      response = await window.api.markitdownConvert({
+        mode: 'file',
+        filename: _mdSelectedFile.name,
+        fileData: fileData
+      });
+    } else {
+      // URL conversion
+      var url = urlInput.value.trim();
+      response = await window.api.markitdownConvert({
+        mode: 'url',
+        url: url
+      });
+    }
+
+    // Hide loading
+    document.getElementById('md-loading').style.display = 'none';
+    document.getElementById('md-convert-btn').disabled = false;
+
+    if (response.success) {
+      _mdMarkdownContent = response.data.markdown || '';
+      _mdOutputFilename = response.data.filename || 'output.md';
+
+      if (!_mdMarkdownContent || !_mdMarkdownContent.trim()) {
+        mdShowAlert('No content was extracted from the source.', 'error');
+        document.getElementById('md-output').style.display = 'none';
+        return;
+      }
+
+      document.getElementById('md-raw-view').value = _mdMarkdownContent;
+      document.getElementById('md-output').style.display = 'block';
+      mdShowRaw();
+      mdShowAlert('Conversion successful!', 'success');
+    } else {
+      var errMsg = response.error ? response.error.message : 'Conversion failed.';
+      mdShowAlert(errMsg, 'error');
+    }
+
+  } catch (err) {
+    document.getElementById('md-loading').style.display = 'none';
+    document.getElementById('md-convert-btn').disabled = false;
+    mdShowAlert('Error: ' + (err.message || 'Backend not available.'), 'error');
+  }
+}
+
+function mdFileToBase64(file) {
+  return new Promise(function(resolve, reject) {
+    var reader = new FileReader();
+    reader.onload = function() {
+      // result is "data:<type>;base64,<data>" — strip prefix
+      var b64 = reader.result.split(',')[1];
+      resolve(b64);
+    };
+    reader.onerror = function() { reject(new Error('Failed to read file')); };
+    reader.readAsDataURL(file);
+  });
+}
+
+/* ── View Toggle ── */
+function mdShowRaw() {
+  document.getElementById('md-raw-view').style.display = 'block';
+  document.getElementById('md-rendered-view').style.display = 'none';
+  document.getElementById('md-btn-raw').style.background = '#495057';
+  document.getElementById('md-btn-raw').style.color = '#fff';
+  document.getElementById('md-btn-rendered').style.background = '';
+  document.getElementById('md-btn-rendered').style.color = '';
+  document.getElementById('md-btn-rendered').className = 'btn-sm btn-grey';
+}
+
+function mdShowRendered() {
+  document.getElementById('md-raw-view').style.display = 'none';
+  document.getElementById('md-rendered-view').style.display = 'block';
+  document.getElementById('md-btn-rendered').style.background = '#495057';
+  document.getElementById('md-btn-rendered').style.color = '#fff';
+  document.getElementById('md-btn-raw').style.background = '';
+  document.getElementById('md-btn-raw').style.color = '';
+  document.getElementById('md-btn-raw').className = 'btn-sm btn-grey';
+
+  // Render Markdown to HTML (basic rendering without external libs)
+  var html = mdRenderMarkdown(_mdMarkdownContent);
+  document.getElementById('md-rendered-view').innerHTML = html;
+}
+
+function mdRenderMarkdown(text) {
+  // Basic Markdown rendering without external dependencies
+  // Handles: headings, bold, italic, code blocks, inline code, links, lists, blockquotes, hr, tables
+  var html = text;
+
+  // Escape HTML
+  html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // Code blocks (fenced)
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, function(m, lang, code) {
+    return '<pre><code>' + code.trim() + '</code></pre>';
+  });
+
+  // Inline code
+  html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+
+  // Headings
+  html = html.replace(/^#{6}\s+(.+)$/gm, '<h6>$1</h6>');
+  html = html.replace(/^#{5}\s+(.+)$/gm, '<h5>$1</h5>');
+  html = html.replace(/^#{4}\s+(.+)$/gm, '<h4>$1</h4>');
+  html = html.replace(/^#{3}\s+(.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^#{2}\s+(.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^#{1}\s+(.+)$/gm, '<h1>$1</h1>');
+
+  // Horizontal rule
+  html = html.replace(/^---+$/gm, '<hr>');
+
+  // Bold & italic
+  html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+  // Links
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+
+  // Images — show as alt text
+  html = html.replace(/!\[([^\]]*)\]\([^)]+\)/g, '<span style="color:#888;">[Image: $1]</span>');
+
+  // Blockquotes
+  html = html.replace(/^&gt;\s?(.+)$/gm, '<blockquote>$1</blockquote>');
+
+  // Unordered lists
+  html = html.replace(/^[\*\-]\s+(.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>');
+  // Collapse adjacent ul tags
+  html = html.replace(/<\/ul>\s*<ul>/g, '');
+
+  // Line breaks → paragraphs
+  html = html.replace(/\n\n/g, '</p><p>');
+  html = '<p>' + html + '</p>';
+  html = html.replace(/<p>\s*<\/p>/g, '');
+  html = html.replace(/<p>\s*(<h[1-6]>)/g, '$1');
+  html = html.replace(/(<\/h[1-6]>)\s*<\/p>/g, '$1');
+  html = html.replace(/<p>\s*(<pre>)/g, '$1');
+  html = html.replace(/(<\/pre>)\s*<\/p>/g, '$1');
+  html = html.replace(/<p>\s*(<ul>)/g, '$1');
+  html = html.replace(/(<\/ul>)\s*<\/p>/g, '$1');
+  html = html.replace(/<p>\s*(<blockquote>)/g, '$1');
+  html = html.replace(/(<\/blockquote>)\s*<\/p>/g, '$1');
+  html = html.replace(/<p>\s*(<hr>)/g, '$1');
+  html = html.replace(/(<hr>)\s*<\/p>/g, '$1');
+
+  return html;
+}
+
+/* ── Download ── */
+function mdDownload() {
+  if (!_mdMarkdownContent) return;
+  var blob = new Blob([_mdMarkdownContent], { type: 'text/markdown;charset=utf-8' });
+  saveAs(blob, _mdOutputFilename);
+}
+
+/* ── Copy ── */
+function mdCopy() {
+  if (!_mdMarkdownContent) return;
+  var copyBtn = document.getElementById('md-copy-btn');
+  navigator.clipboard.writeText(_mdMarkdownContent).then(function() {
+    var originalText = copyBtn.textContent;
+    copyBtn.textContent = '✓ Copied!';
+    setTimeout(function() { copyBtn.textContent = originalText; }, 3000);
+  }).catch(function() {
+    mdShowAlert('Copy to clipboard failed. Select and copy manually.', 'error');
+  });
+}
+
+/* ── Clear ── */
+function mdClear() {
+  mdClearFile();
+  document.getElementById('md-url-input').value = '';
+  document.getElementById('md-output').style.display = 'none';
+  document.getElementById('md-loading').style.display = 'none';
+  _mdMarkdownContent = '';
+  _mdOutputFilename = '';
+  mdHideAlert();
+  mdUpdateConvertBtn();
+}
+
+/* ── Alert display ── */
+function mdShowAlert(message, type) {
+  var el = document.getElementById('md-alert');
+  el.textContent = message;
+  el.style.display = 'block';
+  if (type === 'success') {
+    el.style.background = '#d4edda';
+    el.style.border = '1px solid #c3e6cb';
+    el.style.color = '#155724';
+    setTimeout(mdHideAlert, 3000);
+  } else {
+    el.style.background = '#f8d7da';
+    el.style.border = '1px solid #f5c6cb';
+    el.style.color = '#721c24';
+  }
+}
+
+function mdHideAlert() {
+  document.getElementById('md-alert').style.display = 'none';
+}

@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 # Import analyzer (same directory)
 sys.path.insert(0, ".")
 import analyzer
+import markitdown_handler
 
 
 # =============================================================================
@@ -138,6 +139,47 @@ def handle_impact_analyze(request_id, payload):
     success_response(request_id, result)
 
 
+def handle_markitdown(request_id, payload):
+    """Handle MarkItDown conversion request.
+
+    Supports two modes:
+    - File conversion: payload has 'filename' and 'fileData' (base64)
+    - URL conversion: payload has 'url'
+    """
+    mode = payload.get("mode", "file")
+    logger.debug(f"[DEBUG] Action 'markitdown' received: id={request_id}, mode={mode}")
+
+    start_time = time.time()
+    try:
+        if mode == "url":
+            url = payload.get("url", "")
+            if not url:
+                error_response(request_id, "INVALID_REQUEST", "Missing 'url' in payload")
+                return
+            result = markitdown_handler.convert_url(url)
+        else:
+            filename = payload.get("filename", "")
+            file_data = payload.get("fileData", "")
+            if not filename or not file_data:
+                error_response(request_id, "INVALID_REQUEST",
+                               "Missing 'filename' or 'fileData' in payload")
+                return
+            result = markitdown_handler.convert_file(filename, file_data)
+
+        duration = int((time.time() - start_time) * 1000)
+        logger.info(f"Handler completed: id={request_id}, action=markitdown, mode={mode}, duration={duration}ms")
+        success_response(request_id, result)
+
+    except ValueError as e:
+        error_response(request_id, "VALIDATION_ERROR", str(e))
+    except RuntimeError as e:
+        error_response(request_id, "RUNTIME_ERROR", str(e))
+    except Exception as e:
+        logger.error(f"MarkItDown error: id={request_id}, msg={str(e)}")
+        error_response(request_id, "CONVERSION_ERROR",
+                       f"Conversion failed: {str(e)}")
+
+
 # =============================================================================
 # ACTION ROUTER
 # =============================================================================
@@ -147,6 +189,7 @@ ACTION_HANDLERS = {
     "rewrite": handle_rewrite,
     "convert_dita": handle_convert_dita,
     "impact_analyze": handle_impact_analyze,
+    "markitdown": handle_markitdown,
 }
 
 
