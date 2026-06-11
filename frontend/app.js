@@ -1291,6 +1291,11 @@ function ignoreFix(vidx) {
   refreshCADisplay();
 }
 
+function revertIgnore(vidx) {
+  _ignoredSet.delete(vidx);
+  refreshCADisplay();
+}
+
 function toggleDetailRow(vidx) {
   var det = document.getElementById('vdetail-' + vidx);
   if (!det) return;
@@ -1482,6 +1487,8 @@ function buildPanelCards(filterCat) {
         actions += '<button class="btn-sm" style="background:var(--accent);" onclick="showFixPopup(' + i + ',document.querySelector(\'[data-vidx=\\x22' + i + '\\x22]\'),event);event.stopPropagation();">💡</button>';
       }
       actions += '<button class="btn-sm btn-grey" onclick="ignoreFix(' + i + ');event.stopPropagation();">✗</button>';
+    } else {
+      actions += '<button class="btn-sm" style="background:#6c757d;color:#fff;" onclick="revertIgnore(' + i + ');event.stopPropagation();">↩ Revert</button>';
     }
 
     html += '<div class="ca-issue-card' + ignoredClass + '" data-vidx="' + i + '" onclick="panelCardClick(' + i + ')">' +
@@ -2459,16 +2466,17 @@ document.addEventListener('keydown', function(e) {
 });
 
 /* ── Init on load ── */
-document.addEventListener('DOMContentLoaded', function() {
-  wrUpdate();
-  wrLoadComments();
-  updateTitleBar();
+(function() {
+  function wrInitOnLoad() {
+    wrUpdate();
+    wrLoadComments();
+    updateTitleBar();
 
-  // Focus the editor canvas after a short delay to ensure DOM is ready (Req 1.3)
-  setTimeout(function() {
-    var editor = document.getElementById('wr-page');
-    if (editor) editor.focus();
-  }, 50);
+    // Focus the editor canvas after a short delay to ensure DOM is ready (Req 1.3)
+    setTimeout(function() {
+      var editor = document.getElementById('wr-page');
+      if (editor) editor.focus();
+    }, 50);
 
   // Clear undo/redo stacks when user manually edits the CA text input (Req 4.8)
   var caInputEl = document.getElementById('caInput');
@@ -2524,7 +2532,14 @@ document.addEventListener('DOMContentLoaded', function() {
       if (card) card.classList.remove('hovered');
     });
   }
-});
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wrInitOnLoad);
+  } else {
+    wrInitOnLoad();
+  }
+})();
 
 
 /* ============================================================
@@ -2659,7 +2674,7 @@ function wrSubmitCommentFromPopover() {
 
 /* ── Comment Popover: Keyboard shortcuts on textarea ── */
 (function() {
-  document.addEventListener('DOMContentLoaded', function() {
+  function setupCommentPopover() {
     var textarea = document.getElementById('wr-comment-popover-input');
     var submitBtn = document.getElementById('wr-popover-submit');
     var cancelBtn = document.getElementById('wr-popover-cancel');
@@ -2705,12 +2720,18 @@ function wrSubmitCommentFromPopover() {
         wrHideCommentPopover();
       }
     });
-  });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupCommentPopover);
+  } else {
+    setupCommentPopover();
+  }
 })();
 
 /* ── Reply Input: Delegated keyboard shortcuts on #wr-comments-list ── */
 (function() {
-  document.addEventListener('DOMContentLoaded', function() {
+  function setupReplyInput() {
     var commentsList = document.getElementById('wr-comments-list');
     if (!commentsList) return;
 
@@ -2737,7 +2758,13 @@ function wrSubmitCommentFromPopover() {
       }
       // Shift+Enter → default behavior (newline)
     });
-  });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupReplyInput);
+  } else {
+    setupReplyInput();
+  }
 })();
 
 /* ── Add a comment (triggered from toolbar) ── */
