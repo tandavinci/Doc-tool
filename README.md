@@ -1,4 +1,4 @@
-# Documentation AI Tool
+# Documentation Tool
 
 A desktop application for technical writers that provides content analysis, DITA XML conversion, impact analysis, and a lightweight document editor — all in one integrated workspace.
 
