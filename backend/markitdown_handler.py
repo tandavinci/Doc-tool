@@ -8,6 +8,7 @@ using the MarkItDown library.
 import base64
 import logging
 import os
+import re
 import secrets
 import tempfile
 import time
@@ -61,7 +62,8 @@ def convert_file(filename, file_data_b64):
 
     # Validate extension
     _, ext = os.path.splitext(filename)
-    if ext.lower() not in SUPPORTED_EXTENSIONS:
+    ext_lower = ext.lower()
+    if ext_lower not in SUPPORTED_EXTENSIONS:
         raise ValueError(
             f"Unsupported file type '{ext}'. "
             f"Supported: {', '.join(sorted(SUPPORTED_EXTENSIONS))}"
@@ -77,9 +79,12 @@ def convert_file(filename, file_data_b64):
     if len(file_bytes) > MAX_FILE_SIZE:
         raise ValueError("File size exceeds the 50 MB limit")
 
-    # Write to a temp file for conversion
+    if len(file_bytes) == 0:
+        raise ValueError("File is empty")
+
+    # Write to a temp file for conversion, preserving original extension
     temp_dir = tempfile.gettempdir()
-    safe_name = secrets.token_hex(16) + ext.lower()
+    safe_name = secrets.token_hex(16) + ext_lower
     temp_path = os.path.join(temp_dir, safe_name)
 
     try:
@@ -87,11 +92,11 @@ def convert_file(filename, file_data_b64):
             f.write(file_bytes)
 
         start = time.time()
-        result = md.convert_local(temp_path)
+        result = md.convert(temp_path)
         duration = time.time() - start
-        logger.info(f"File conversion completed in {duration:.2f}s: {filename}")
+        logger.info(f"File conversion completed in {duration:.2f}s: {filename} ({len(file_bytes)} bytes)")
 
-        markdown = result.text_content if hasattr(result, 'text_content') else (result.markdown or "")
+        markdown = _extract_markdown(result)
 
         # Generate output filename
         base = os.path.splitext(filename)[0]
@@ -129,11 +134,11 @@ def convert_url(url):
         raise ValueError("URL must contain a valid hostname")
 
     start = time.time()
-    result = md.convert_url(url)
+    result = md.convert(url)
     duration = time.time() - start
     logger.info(f"URL conversion completed in {duration:.2f}s: {url}")
 
-    markdown = result.text_content if hasattr(result, 'text_content') else (result.markdown or "")
+    markdown = _extract_markdown(result)
 
     # Generate output filename from URL
     base = parsed.netloc + parsed.path.rstrip("/")
@@ -146,8 +151,22 @@ def convert_url(url):
     }
 
 
+def _extract_markdown(result):
+    """Safely extract markdown text from a MarkItDown conversion result.
+
+    The library returns a DocumentConverterResult with a text_content attribute.
+    """
+    if result is None:
+        return ""
+    if hasattr(result, "text_content") and result.text_content:
+        return result.text_content
+    # Fallback: some older versions might use different attributes
+    if hasattr(result, "markdown") and result.markdown:
+        return result.markdown
+    return ""
+
+
 def _sanitize_filename(name, max_length=200):
     """Replace non-safe characters with underscore, truncate."""
-    import re
     sanitized = re.sub(r"[^a-zA-Z0-9._\-]", "_", name)
     return sanitized[:max_length]

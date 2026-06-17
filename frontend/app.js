@@ -2052,22 +2052,25 @@ function toggleRwLog() {
 }
 
 /* [FRONTEND: UI] — rewrite file upload handling with mammoth.js, stays in app.js */
-document.getElementById('rwFile').addEventListener('change', function(e) {
-  var file = e.target.files[0];
-  if (!file) return;
-  if (file.name.endsWith('.docx')) {
-    var r = new FileReader();
-    r.onload = function(ev) {
-      mammoth.extractRawText({ arrayBuffer: ev.target.result })
-        .then(function(res){ document.getElementById('rwInput').value = res.value; });
-    };
-    r.readAsArrayBuffer(file);
-  } else if (file.name.endsWith('.txt')) {
-    var r2 = new FileReader();
-    r2.onload = function(ev){ document.getElementById('rwInput').value = ev.target.result; };
-    r2.readAsText(file);
-  }
-});
+var _rwFileEl = document.getElementById('rwFile');
+if (_rwFileEl) {
+  _rwFileEl.addEventListener('change', function(e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    if (file.name.endsWith('.docx')) {
+      var r = new FileReader();
+      r.onload = function(ev) {
+        mammoth.extractRawText({ arrayBuffer: ev.target.result })
+          .then(function(res){ document.getElementById('rwInput').value = res.value; });
+      };
+      r.readAsArrayBuffer(file);
+    } else if (file.name.endsWith('.txt')) {
+      var r2 = new FileReader();
+      r2.onload = function(ev){ document.getElementById('rwInput').value = ev.target.result; };
+      r2.readAsText(file);
+    }
+  });
+}
 
 /* ============================================================
    WRITE TAB — lightweight offline Word processor
@@ -3434,7 +3437,17 @@ async function mdConvert() {
 
     if (_mdSelectedFile) {
       // File conversion — read file as base64, send via IPC
-      var fileData = await mdFileToBase64(_mdSelectedFile);
+      var fileData;
+      try {
+        fileData = await mdFileToBase64(_mdSelectedFile);
+      } catch (readErr) {
+        throw new Error('Failed to read file: ' + (readErr.message || 'file may have been moved or deleted'));
+      }
+
+      if (!fileData) {
+        throw new Error('File appears to be empty or could not be read.');
+      }
+
       response = await window.api.markitdownConvert({
         mode: 'file',
         filename: _mdSelectedFile.name,
@@ -3443,6 +3456,9 @@ async function mdConvert() {
     } else {
       // URL conversion
       var url = urlInput.value.trim();
+      if (!/^https?:\/\//i.test(url)) {
+        url = 'https://' + url;
+      }
       response = await window.api.markitdownConvert({
         mode: 'url',
         url: url
@@ -3451,14 +3467,21 @@ async function mdConvert() {
 
     // Hide loading
     document.getElementById('md-loading').style.display = 'none';
-    document.getElementById('md-convert-btn').disabled = false;
+    mdUpdateConvertBtn();
+
+    // Validate response structure
+    if (!response) {
+      mdShowAlert('Error: No response received from backend. The conversion may have timed out.', 'error');
+      return;
+    }
 
     if (response.success) {
-      _mdMarkdownContent = response.data.markdown || '';
-      _mdOutputFilename = response.data.filename || 'output.md';
+      var data = response.data || {};
+      _mdMarkdownContent = data.markdown || '';
+      _mdOutputFilename = data.filename || 'output.md';
 
-      if (!_mdMarkdownContent || !_mdMarkdownContent.trim()) {
-        mdShowAlert('No content was extracted from the source.', 'error');
+      if (!_mdMarkdownContent.trim()) {
+        mdShowAlert('No content was extracted from the source. The file may be empty, password-protected, or in an unsupported format variation.', 'error');
         document.getElementById('md-output').style.display = 'none';
         return;
       }
@@ -3466,16 +3489,23 @@ async function mdConvert() {
       document.getElementById('md-raw-view').value = _mdMarkdownContent;
       document.getElementById('md-output').style.display = 'block';
       mdShowRaw();
-      mdShowAlert('Conversion successful!', 'success');
+      mdShowAlert('Conversion successful! (' + mdFormatSize(_mdMarkdownContent.length) + ' of Markdown)', 'success');
     } else {
-      var errMsg = response.error ? response.error.message : 'Conversion failed.';
+      var errMsg = (response.error && response.error.message) ? response.error.message : 'Conversion failed. Please try a different file or check the format.';
       mdShowAlert(errMsg, 'error');
     }
 
   } catch (err) {
     document.getElementById('md-loading').style.display = 'none';
-    document.getElementById('md-convert-btn').disabled = false;
-    mdShowAlert('Error: ' + (err.message || 'Backend not available.'), 'error');
+    mdUpdateConvertBtn();
+    var msg = err.message || 'Unknown error';
+    if (msg.indexOf('timed out') !== -1) {
+      mdShowAlert('Conversion timed out. The file may be too large or complex. Try a smaller file.', 'error');
+    } else if (msg.indexOf('Backend not available') !== -1 || msg.indexOf('not available') !== -1) {
+      mdShowAlert('Backend is not available. Please restart the application.', 'error');
+    } else {
+      mdShowAlert('Error: ' + msg, 'error');
+    }
   }
 }
 

@@ -124,6 +124,7 @@ function spawnBackend() {
 }
 
 const REQUEST_TIMEOUT_MS = 30000; // 30 second timeout for backend requests
+const MARKITDOWN_TIMEOUT_MS = 120000; // 120 second timeout for file conversions
 const DEBUG = process.argv.includes('--dev');
 
 function sendToBackend(action, payload) {
@@ -137,23 +138,32 @@ function sendToBackend(action, payload) {
     const id = `req-${String(requestId).padStart(4, '0')}`;
     const request = { id, action, payload };
 
+    // Use longer timeout for markitdown conversions (large file processing)
+    const timeoutMs = action === 'markitdown' ? MARKITDOWN_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
+
     // Timeout protection for stalled requests
     const timer = setTimeout(() => {
       if (pendingRequests.has(id)) {
         pendingRequests.delete(id);
-        reject(new Error(`Backend request timed out: ${action} (${id})`));
+        reject(new Error(`Backend request timed out after ${timeoutMs / 1000}s: ${action} (${id})`));
       }
-    }, REQUEST_TIMEOUT_MS);
+    }, timeoutMs);
 
     pendingRequests.set(id, {
       resolve: (response) => { clearTimeout(timer); resolve(response); },
       reject: (err) => { clearTimeout(timer); reject(err); },
     });
 
-    // Write JSON + newline to stdin
+    // Write JSON + newline to stdin, handling backpressure for large payloads
     const line = JSON.stringify(request) + '\n';
-    if (DEBUG) console.log(`[main][DEBUG] → Sending to backend: id=${id}, action=${action}`);
-    pythonProcess.stdin.write(line, 'utf-8');
+    if (DEBUG) console.log(`[main][DEBUG] → Sending to backend: id=${id}, action=${action}, size=${line.length}`);
+    const ok = pythonProcess.stdin.write(line, 'utf-8');
+    if (!ok) {
+      // Buffer is full, wait for drain before considering ready for next write
+      pythonProcess.stdin.once('drain', () => {
+        if (DEBUG) console.log(`[main][DEBUG] stdin drained after large write: id=${id}`);
+      });
+    }
   });
 }
 
@@ -255,6 +265,11 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, '..', 'frontend', 'index.html'));
+
+  // Open DevTools in development mode
+  if (DEBUG) {
+    mainWindow.webContents.openDevTools();
+  }
 
   mainWindow.on('closed', () => {
     mainWindow = null;
