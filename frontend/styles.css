@@ -68,6 +68,8 @@ input[type=file] { margin: 10px 0; }
 .ca-legend-item { display:flex; align-items:center; gap:5px; }
 .leg-dot { width:14px; height:14px; border-radius:2px; display:inline-block; flex-shrink:0; }
 
+
+
 /* ── CA ANNOTATED BOX ───────────────────────────────────── */
 #ca-annotated {
   background:#fafafa; padding:16px; border-radius:6px;
@@ -75,6 +77,16 @@ input[type=file] { margin: 10px 0; }
   border:1px solid #ddd; min-height:60px; position: relative;
 }
 #ca-annotated .ca-violation:hover { opacity: .85; box-shadow: 0 0 0 2px rgba(0,0,0,.15); }
+
+/* ── CA ANNOTATED EDITABLE STATE ────────────────────────── */
+#ca-annotated[contenteditable="true"] {
+  cursor: text;
+  outline: none;
+}
+#ca-annotated[contenteditable="true"]:focus {
+  border-color: var(--accent, #4f46e5);
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.1);
+}
 
 /* ── CA FIXED BOX ───────────────────────────────────────── */
 #ca-fixed-output {

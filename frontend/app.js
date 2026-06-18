@@ -16,7 +16,7 @@
    [FRONTEND: UI] — DOM manipulation, stays in app.js
    ============================================================ */
 function openTab(id, e) {
-  ['converter','analyzer','contentAnalysis','rewrite'].forEach(t =>
+  ['converter','analyzer','contentAnalysis','rewrite','markitdown'].forEach(t =>
     document.getElementById(t).style.display = 'none');
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   e.target.classList.add('active');
@@ -29,6 +29,62 @@ function openTab(id, e) {
       if (page) page.focus();
     }, 50);
   }
+}
+
+/* ============================================================
+   UTILITY — FILENAME SANITIZATION
+   [SHARED: Utility] — used by save functions to derive filenames
+   ============================================================ */
+
+/**
+ * Sanitizes a string for use as a filename.
+ * Removes invalid Windows filename characters, collapses whitespace,
+ * trims, and truncates to 100 characters without splitting a word.
+ * @param {string} text - Raw text (e.g., heading content)
+ * @returns {string} Sanitized filename, or "Untitled" if result is empty
+ */
+function sanitizeFilename(text) {
+  if (!text) return 'Untitled';
+
+  // 1. Remove characters invalid in Windows filenames: \ / : * ? " < > |
+  var result = text.replace(/[\\/:*?"<>|]/g, '');
+
+  // 2. Collapse consecutive whitespace into a single space
+  result = result.replace(/\s+/g, ' ');
+
+  // 3. Trim leading and trailing whitespace
+  result = result.trim();
+
+  // 4. Return "Untitled" if the result is empty after sanitization
+  if (!result) return 'Untitled';
+
+  // 5. Truncate to 100 characters without splitting a word
+  if (result.length > 100) {
+    result = result.substring(0, 100);
+    var lastSpace = result.lastIndexOf(' ');
+    if (lastSpace > 0) {
+      result = result.substring(0, lastSpace);
+    }
+    result = result.trim();
+  }
+
+  // Final safety check — if truncation left nothing
+  return result || 'Untitled';
+}
+
+/**
+ * Derives a filename from the first heading in the editor canvas.
+ * Finds the first h1–h4 element, sanitizes its text content,
+ * and appends the provided extension.
+ * @param {string} extension - File extension including dot (e.g., ".docx")
+ * @returns {string} Derived filename with extension
+ */
+function deriveFilename(extension) {
+  var page = document.getElementById('wr-page');
+  if (!page) return 'Untitled' + extension;
+  var heading = page.querySelector('h1, h2, h3, h4');
+  var text = heading ? (heading.textContent || heading.innerText || '') : '';
+  return sanitizeFilename(text) + extension;
 }
 
 /* ============================================================
@@ -715,6 +771,81 @@ const CA_RULES = [
 ];
 
 
+/* ── Undo/Redo State ── */
+/* [FRONTEND: UI] — global undo/redo stacks for Content Analysis fixes */
+
+var _caGlobalUndoStack = [];
+var _caGlobalRedoStack = [];
+
+/**
+ * Records an undo entry when a fix is applied.
+ * @param {number} violationIndex - Violation index
+ * @param {string} originalText - Original matched text before the fix
+ * @param {string} replacementText - Replacement text applied
+ * @param {number} offset - Character offset in the text
+ */
+function pushUndoEntry(violationIndex, originalText, replacementText, offset) {
+  _caGlobalUndoStack.push({ violationIndex: violationIndex, originalText: originalText, replacementText: replacementText, offset: offset });
+  _caGlobalRedoStack = [];
+}
+
+/**
+ * Clears all undo/redo stacks (called on new analysis or manual text edit).
+ */
+function clearAllUndoStacks() {
+  _caGlobalUndoStack = [];
+  _caGlobalRedoStack = [];
+}
+
+/**
+ * Global undo: reverts the most recent CA fix action.
+ */
+function caGlobalUndo() {
+  if (_caGlobalUndoStack.length === 0) return;
+  var entry = _caGlobalUndoStack.pop();
+  // Handle full text swap entries (from contenteditable manual edits)
+  if (entry.isFullTextSwap) {
+    _text = entry.originalText;
+    _caGlobalRedoStack.push(entry);
+    document.getElementById('caInput').value = _text;
+    rerunCA();
+    return;
+  }
+  // Verify text at offset matches replacement
+  var textAtOffset = _text.substring(entry.offset, entry.offset + entry.replacementText.length);
+  if (textAtOffset !== entry.replacementText) return; // stale entry
+  // Revert: replace replacementText with originalText
+  _text = _text.substring(0, entry.offset) + entry.originalText + _text.substring(entry.offset + entry.replacementText.length);
+  _caGlobalRedoStack.push(entry);
+  document.getElementById('caInput').value = _text;
+  rerunCA();
+}
+
+/**
+ * Global redo: re-applies the most recently undone CA fix action.
+ */
+function caGlobalRedo() {
+  if (_caGlobalRedoStack.length === 0) return;
+  var entry = _caGlobalRedoStack.pop();
+  // Handle full text swap entries (from contenteditable manual edits)
+  if (entry.isFullTextSwap) {
+    _text = entry.replacementText;
+    _caGlobalUndoStack.push(entry);
+    document.getElementById('caInput').value = _text;
+    rerunCA();
+    return;
+  }
+  // Verify text at offset matches original
+  var textAtOffset = _text.substring(entry.offset, entry.offset + entry.originalText.length);
+  if (textAtOffset !== entry.originalText) return; // stale entry
+  // Re-apply: replace originalText with replacementText
+  _text = _text.substring(0, entry.offset) + entry.replacementText + _text.substring(entry.offset + entry.originalText.length);
+  _caGlobalUndoStack.push(entry);
+  document.getElementById('caInput').value = _text;
+  rerunCA();
+}
+
+
 /* ── Sentence-level checks ── */
 /* [BACKEND: Logic] — sentence analysis migrates to Python (rules.py)
    Functions to extract: checkSentenceLevel */
@@ -1135,6 +1266,12 @@ function computeFixed(text) {
 function applyOneFix(vidx, replacement) {
   var v = _violations[vidx];
   if (!v) return;
+
+  // Record undo entry before modifying text
+  var originalText = _text.slice(v.start, v.end);
+  _caGlobalUndoStack.push({ violationIndex: vidx, originalText: originalText, replacementText: replacement, offset: v.start });
+  _caGlobalRedoStack = []; // new action clears redo
+
   var before = _text.slice(0, v.start);
   var after  = _text.slice(v.end);
   _text = (before + replacement + after).replace(/[ \t]{2,}/g,' ').replace(/ ([,.:!?])/g,'$1');
@@ -1151,6 +1288,11 @@ function applyCustomFromTable(vidx) {
 
 function ignoreFix(vidx) {
   _ignoredSet.add(vidx);
+  refreshCADisplay();
+}
+
+function revertIgnore(vidx) {
+  _ignoredSet.delete(vidx);
   refreshCADisplay();
 }
 
@@ -1271,6 +1413,8 @@ var _text = '', _violations = [], _fixed = '';
 var _ignoredSet = new Set();
 var _caPanelFilter = 'All';
 
+
+
 /* ── Docked Panel: Category Filters ── */
 function buildPanelFilters() {
   var filtersEl = document.getElementById('ca-panel-filters');
@@ -1343,6 +1487,8 @@ function buildPanelCards(filterCat) {
         actions += '<button class="btn-sm" style="background:var(--accent);" onclick="showFixPopup(' + i + ',document.querySelector(\'[data-vidx=\\x22' + i + '\\x22]\'),event);event.stopPropagation();">💡</button>';
       }
       actions += '<button class="btn-sm btn-grey" onclick="ignoreFix(' + i + ');event.stopPropagation();">✗</button>';
+    } else {
+      actions += '<button class="btn-sm" style="background:#6c757d;color:#fff;" onclick="revertIgnore(' + i + ');event.stopPropagation();">↩ Revert</button>';
     }
 
     html += '<div class="ca-issue-card' + ignoredClass + '" data-vidx="' + i + '" onclick="panelCardClick(' + i + ')">' +
@@ -1391,6 +1537,9 @@ function runCA() {
   var text = document.getElementById('caInput').value.trim();
   if (!text) { alert('Paste or upload content to analyze.'); return; }
   _text       = text;
+
+  // Clear all undo/redo stacks on new analysis
+  clearAllUndoStacks();
 
   // Use backend via Electron IPC if available, otherwise use local JS
   if (window.api && window.api.analyze) {
@@ -1478,6 +1627,43 @@ function downloadFixed() {
   var doc = new D({ sections:[{ children: lines.map(function(l){ return new P(l); }) }] });
   K.toBlob(doc).then(function(blob){ saveAs(blob, 'fixed_content.docx'); });
 }
+
+
+/* ═══════════════════════════════════════════════════════════
+   ZOOM CONTROL — Ctrl+Scroll Wheel
+   [FRONTEND: UI] — zoom state and DOM updates, stays in app.js
+   ═══════════════════════════════════════════════════════════ */
+var _appZoomLevel = 100;
+
+document.addEventListener('wheel', function(e) {
+  if (!e.ctrlKey) return; // normal scroll — do nothing
+  e.preventDefault();
+  if (e.deltaY < 0) {
+    _appZoomLevel = Math.min(_appZoomLevel + 10, 200);
+  } else {
+    _appZoomLevel = Math.max(_appZoomLevel - 10, 50);
+  }
+  // Apply zoom to the active tab's content
+  document.body.style.zoom = _appZoomLevel / 100;
+}, { passive: false });
+
+/* ═══════════════════════════════════════════════════════════
+   GLOBAL UNDO/REDO — Ctrl+Z / Ctrl+Y (Content Analysis tab only)
+   [FRONTEND: UI] — keyboard shortcut handling, stays in app.js
+   ═══════════════════════════════════════════════════════════ */
+document.addEventListener('keydown', function(e) {
+  // Only intercept in Content Analysis tab
+  var caTab = document.getElementById('contentAnalysis');
+  if (!caTab || caTab.style.display === 'none') return;
+
+  if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {
+    e.preventDefault();
+    caGlobalUndo();
+  } else if (e.ctrlKey && e.key === 'y') {
+    e.preventDefault();
+    caGlobalRedo();
+  }
+});
 
 
 /* ═══════════════════════════════════════════════════════════
@@ -1866,22 +2052,25 @@ function toggleRwLog() {
 }
 
 /* [FRONTEND: UI] — rewrite file upload handling with mammoth.js, stays in app.js */
-document.getElementById('rwFile').addEventListener('change', function(e) {
-  var file = e.target.files[0];
-  if (!file) return;
-  if (file.name.endsWith('.docx')) {
-    var r = new FileReader();
-    r.onload = function(ev) {
-      mammoth.extractRawText({ arrayBuffer: ev.target.result })
-        .then(function(res){ document.getElementById('rwInput').value = res.value; });
-    };
-    r.readAsArrayBuffer(file);
-  } else if (file.name.endsWith('.txt')) {
-    var r2 = new FileReader();
-    r2.onload = function(ev){ document.getElementById('rwInput').value = ev.target.result; };
-    r2.readAsText(file);
-  }
-});
+var _rwFileEl = document.getElementById('rwFile');
+if (_rwFileEl) {
+  _rwFileEl.addEventListener('change', function(e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    if (file.name.endsWith('.docx')) {
+      var r = new FileReader();
+      r.onload = function(ev) {
+        mammoth.extractRawText({ arrayBuffer: ev.target.result })
+          .then(function(res){ document.getElementById('rwInput').value = res.value; });
+      };
+      r.readAsArrayBuffer(file);
+    } else if (file.name.endsWith('.txt')) {
+      var r2 = new FileReader();
+      r2.onload = function(ev){ document.getElementById('rwInput').value = ev.target.result; };
+      r2.readAsText(file);
+    }
+  });
+}
 
 /* ============================================================
    WRITE TAB — lightweight offline Word processor
@@ -1916,6 +2105,7 @@ function wrApplyStyle(tag) {
 }
 
 /* ── Update word/char/para counts ── */
+var _titleUpdateTimer = null;
 function wrUpdate() {
   var page = document.getElementById('wr-page');
   var raw  = page.innerText || '';
@@ -1925,6 +2115,45 @@ function wrUpdate() {
   document.getElementById('wr-wc').textContent = words;
   document.getElementById('wr-cc').textContent = chars;
   document.getElementById('wr-pc').textContent = paras;
+
+  // Debounced title bar update (500ms)
+  clearTimeout(_titleUpdateTimer);
+  _titleUpdateTimer = setTimeout(updateTitleBar, 500);
+}
+
+/* ── Title bar display ── */
+
+/**
+ * Extracts the document title from the first heading in the editor.
+ * Looks for h1–h4 in #wr-page and returns its text content,
+ * truncated to 60 characters with ellipsis if needed.
+ * @returns {string} Title text or empty string
+ */
+function extractDocumentTitle() {
+  var page = document.getElementById('wr-page');
+  if (!page) return '';
+  var heading = page.querySelector('h1, h2, h3, h4');
+  if (!heading) return '';
+  var text = (heading.textContent || heading.innerText || '').trim();
+  if (!text) return '';
+  if (text.length > 60) text = text.substring(0, 60) + '\u2026';
+  return text;
+}
+
+/**
+ * Updates the document title bar using the extracted title.
+ * Format: "My Document — Documentation Tool" or just "Documentation Tool" if no heading.
+ * Also sends the title via IPC if available (Electron environment).
+ */
+function updateTitleBar() {
+  var title = extractDocumentTitle();
+  var appName = 'Documentation Tool';
+  var fullTitle = title ? title + ' \u2014 ' + appName : appName;
+  document.title = fullTitle;
+  // Also try IPC if available
+  if (window.api && window.api.setTitle) {
+    window.api.setTitle(fullTitle);
+  }
 }
 
 /* ── Update toolbar active states ── */
@@ -1961,7 +2190,22 @@ function wrNew() {
     if (!confirm('Start a new document? Unsaved changes will be lost.')) return;
   }
   document.getElementById('wr-page').innerHTML = '<p><br></p>';
+
+  // Reset comment state for new document
+  _wrComments = [];
+  _wrCommentId = 0;
+  _wrPendingRange = null;
+  _wrPopoverOpen = false;
+  wrHideCommentPopover();
+  try {
+    localStorage.removeItem('wr-comments-data');
+  } catch (e) {
+    console.warn('[Comments] Could not clear localStorage:', e.message);
+  }
+  wrRenderComments();
+
   wrUpdate();
+  updateTitleBar();
 }
 
 /* ── Open file ── */
@@ -2034,7 +2278,7 @@ function wrSaveDocx() {
   if (!children.length) children.push(new P({ children:[new R('')] }));
 
   var doc = new D({ sections:[{ children: children }] });
-  K.toBlob(doc).then(function(blob){ saveAs(blob, 'document.docx'); });
+  K.toBlob(doc).then(function(blob){ saveAs(blob, deriveFilename('.docx')); });
 
   var msg = document.getElementById('wr-saved-msg');
   msg.style.display = 'inline';
@@ -2045,7 +2289,7 @@ function wrSaveDocx() {
 function wrSaveTxt() {
   var txt = document.getElementById('wr-page').innerText || '';
   var blob = new Blob([txt], { type: 'text/plain' });
-  saveAs(blob, 'document.txt');
+  saveAs(blob, deriveFilename('.txt'));
 }
 
 /* ── Print ── */
@@ -2239,9 +2483,41 @@ document.addEventListener('keydown', function(e) {
 });
 
 /* ── Init on load ── */
-document.addEventListener('DOMContentLoaded', function() {
-  wrUpdate();
-  wrLoadComments();
+(function() {
+  function wrInitOnLoad() {
+    wrUpdate();
+    wrLoadComments();
+    updateTitleBar();
+
+    // Focus the editor canvas after a short delay to ensure DOM is ready (Req 1.3)
+    setTimeout(function() {
+      var editor = document.getElementById('wr-page');
+      if (editor) editor.focus();
+    }, 50);
+
+  // Clear undo/redo stacks when user manually edits the CA text input (Req 4.8)
+  var caInputEl = document.getElementById('caInput');
+  if (caInputEl) {
+    caInputEl.addEventListener('input', function() {
+      clearAllUndoStacks();
+    });
+  }
+
+  // Sync manual edits in annotated area back to _text and undo stack
+  var caAnnotated = document.getElementById('ca-annotated');
+  if (caAnnotated) {
+    caAnnotated.addEventListener('input', function() {
+      var oldText = _text;
+      // Get plain text from the contenteditable div
+      _text = caAnnotated.innerText || caAnnotated.textContent || '';
+      document.getElementById('caInput').value = _text;
+      // Record the edit in undo stack (simplified: store full text swap)
+      if (oldText !== _text) {
+        _caGlobalUndoStack.push({ violationIndex: -1, originalText: oldText, replacementText: _text, offset: 0, isFullTextSwap: true });
+        _caGlobalRedoStack = [];
+      }
+    });
+  }
 
   // Listen for backend crash notifications (Electron only)
   if (window.api && window.api.onBackendError) {
@@ -2273,7 +2549,14 @@ document.addEventListener('DOMContentLoaded', function() {
       if (card) card.classList.remove('hovered');
     });
   }
-});
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wrInitOnLoad);
+  } else {
+    wrInitOnLoad();
+  }
+})();
 
 
 /* ============================================================
@@ -2284,6 +2567,19 @@ document.addEventListener('DOMContentLoaded', function() {
 var _wrComments = []; // { id, text, snippet, range serialization }
 var _wrCommentId = 0;
 var _wrPendingRange = null; // Holds the selection range while the popover is open
+var _wrPopoverOpen = false; // Guard flag to track popover open state
+
+/* ── Timestamp helper: returns "MMM D, YYYY HH:MM" format ── */
+function _wrTimestamp() {
+  var now = new Date();
+  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var month = months[now.getMonth()];
+  var day = now.getDate();
+  var year = now.getFullYear();
+  var hours = String(now.getHours()).padStart(2, '0');
+  var minutes = String(now.getMinutes()).padStart(2, '0');
+  return month + ' ' + day + ', ' + year + ' ' + hours + ':' + minutes;
+}
 
 /* ── Show/hide floating "Add Comment" button — REMOVED ── */
 /* Comments are now triggered from the toolbar button only. */
@@ -2297,8 +2593,14 @@ function wrShowCommentPopover(range) {
   var canvas = document.getElementById('wr-canvas');
   if (!popover || !canvas) return;
 
+  // If popover is already open, close it first to reset state cleanly
+  if (_wrPopoverOpen) {
+    wrHideCommentPopover();
+  }
+
   // Store the range for later use when submitting
   _wrPendingRange = range;
+  _wrPopoverOpen = true;
 
   // Get the bounding rect of the selection range
   var rangeRect = range.getBoundingClientRect();
@@ -2315,15 +2617,30 @@ function wrShowCommentPopover(range) {
   }
   if (left < 8) left = 8;
 
+  // Clamp top so popover doesn't overflow below the visible canvas viewport
+  var popoverHeight = 160; // approximate rendered height of popover
+  var canvasVisibleBottom = canvas.scrollTop + canvas.clientHeight;
+  if (top + popoverHeight > canvasVisibleBottom) {
+    // Try placing above the selection instead
+    var topAbove = rangeRect.top - canvasRect.top + canvas.scrollTop - popoverHeight - 8;
+    if (topAbove >= canvas.scrollTop) {
+      top = topAbove;
+    } else {
+      // Clamp to bottom of visible area as last resort
+      top = canvasVisibleBottom - popoverHeight - 8;
+    }
+  }
+  if (top < canvas.scrollTop + 8) top = canvas.scrollTop + 8;
+
   popover.style.top = top + 'px';
   popover.style.left = left + 'px';
   popover.style.display = 'block';
 
-  // Focus the textarea
+  // Focus the textarea after a microtask to ensure focus is not stolen by bubbling events
   var textarea = document.getElementById('wr-comment-popover-input');
   if (textarea) {
     textarea.value = '';
-    textarea.focus();
+    setTimeout(function() { textarea.focus(); }, 0);
   }
 }
 
@@ -2340,8 +2657,9 @@ function wrHideCommentPopover() {
     textarea.value = '';
   }
 
-  // Clear the stored range
+  // Clear the stored range and guard flag
   _wrPendingRange = null;
+  _wrPopoverOpen = false;
 }
 
 /* ── Comment Popover: Submit ── */
@@ -2357,58 +2675,92 @@ function wrSubmitCommentFromPopover() {
     return;
   }
 
-  // If we have a pending range, create the comment
-  if (_wrPendingRange) {
-    var range = _wrPendingRange;
-    var snippet = range.toString().trim();
+  // Guard: if no pending range, log and abort
+  if (!_wrPendingRange) {
+    console.warn('[Comments] Submit failed: _wrPendingRange is null. Popover will close.');
+    wrHideCommentPopover();
+    return;
+  }
 
-    _wrCommentId++;
-    var id = 'wrc-' + _wrCommentId;
+  var range = _wrPendingRange;
+  var page = document.getElementById('wr-page');
 
-    // Restore selection from stored range
-    var sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-
-    // Wrap selected text in a highlight span
-    var mark = document.createElement('span');
-    mark.className = 'wr-comment-highlight';
-    mark.setAttribute('data-comment-id', id);
-    mark.title = text.trim();
-    try {
-      range.surroundContents(mark);
-    } catch (e) {
-      // surroundContents fails if selection crosses element boundaries (Req 1.7)
-      // Show notification and leave editor unchanged
-      alert('Cannot add comment: the selection spans multiple paragraphs or elements. Please select text within a single block.');
+  // Validate the range is still valid and within the editor
+  try {
+    var rangeText = range.toString();
+    var snippet = rangeText.trim();
+    if (!snippet) {
+      console.warn('[Comments] Submit failed: range text is empty (selection may have been lost).');
       wrHideCommentPopover();
       return;
     }
-
-    // Store comment
-    _wrComments.push({
-      id: id,
-      text: text.trim(),
-      snippet: snippet.slice(0, 60),
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      replies: []
-    });
-
-    // Clear selection
-    window.getSelection().removeAllRanges();
-
-    // Render comments panel
-    wrRenderComments();
-    wrUpdate();
-    wrSaveComments();
+    if (!page || !page.contains(range.startContainer) || !page.contains(range.endContainer)) {
+      console.warn('[Comments] Submit failed: range is no longer within the editor.');
+      wrHideCommentPopover();
+      return;
+    }
+  } catch (e) {
+    console.warn('[Comments] Submit failed: range validation threw:', e.message);
+    wrHideCommentPopover();
+    return;
   }
+
+  _wrCommentId++;
+  var id = 'wrc-' + _wrCommentId;
+
+  // Restore selection from stored range
+  var sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+
+  // Wrap selected text in a highlight span
+  var mark = document.createElement('span');
+  mark.className = 'wr-comment-highlight';
+  mark.setAttribute('data-comment-id', id);
+  mark.title = text.trim();
+  try {
+    range.surroundContents(mark);
+  } catch (e) {
+    // surroundContents fails if selection crosses element boundaries (Req 1.7)
+    console.warn('[Comments] Creation failed: surroundContents threw:', e.message);
+    alert('Cannot add comment: the selection spans multiple paragraphs or elements. Please select text within a single block.');
+    // Rollback the ID increment
+    _wrCommentId--;
+    wrHideCommentPopover();
+    return;
+  }
+
+  // Normalize parent to merge adjacent text nodes created by surroundContents
+  if (mark.parentNode) {
+    mark.parentNode.normalize();
+  }
+
+  // Store comment
+  var snippet = range.toString().trim() || mark.textContent.trim();
+  _wrComments.push({
+    id: id,
+    text: text.trim(),
+    snippet: snippet.slice(0, 60),
+    time: _wrTimestamp(),
+    replies: []
+  });
+
+  console.log('[Comments] Created comment:', id, '| snippet:', snippet.slice(0, 30));
+
+  // Clear selection
+  window.getSelection().removeAllRanges();
+
+  // Render comments panel
+  wrRenderComments();
+  wrUpdate();
+  wrSaveComments();
 
   wrHideCommentPopover();
 }
 
 /* ── Comment Popover: Keyboard shortcuts on textarea ── */
 (function() {
-  document.addEventListener('DOMContentLoaded', function() {
+  function setupCommentPopover() {
     var textarea = document.getElementById('wr-comment-popover-input');
     var submitBtn = document.getElementById('wr-popover-submit');
     var cancelBtn = document.getElementById('wr-popover-cancel');
@@ -2451,15 +2803,26 @@ function wrSubmitCommentFromPopover() {
 
       // Check if click is outside the popover
       if (!popover.contains(e.target)) {
+        // Don't dismiss if clicking the Comment toolbar button (it will handle open/close itself)
+        var commentBtn = document.getElementById('wr-comment-btn');
+        if (commentBtn && (commentBtn === e.target || commentBtn.contains(e.target))) {
+          return;
+        }
         wrHideCommentPopover();
       }
     });
-  });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupCommentPopover);
+  } else {
+    setupCommentPopover();
+  }
 })();
 
 /* ── Reply Input: Delegated keyboard shortcuts on #wr-comments-list ── */
 (function() {
-  document.addEventListener('DOMContentLoaded', function() {
+  function setupReplyInput() {
     var commentsList = document.getElementById('wr-comments-list');
     if (!commentsList) return;
 
@@ -2486,7 +2849,13 @@ function wrSubmitCommentFromPopover() {
       }
       // Shift+Enter → default behavior (newline)
     });
-  });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupReplyInput);
+  } else {
+    setupReplyInput();
+  }
 })();
 
 /* ── Add a comment (triggered from toolbar) ── */
@@ -2515,25 +2884,71 @@ function wrAddComment() {
   }
 
   // Check for cross-element selection that cannot be wrapped (Req 1.7)
-  // surroundContents requires the range to select only inline content within a single parent
-  var testSpan = document.createElement('span');
-  try {
-    var testRange = range.cloneRange();
-    testRange.surroundContents(testSpan);
-    // If successful, undo the wrapping — unwrap the test span
-    var parent = testSpan.parentNode;
-    while (testSpan.firstChild) {
-      parent.insertBefore(testSpan.firstChild, testSpan);
+  // Non-DOM-mutating validation: check if the range's common ancestor allows wrapping.
+  // surroundContents requires that the range does not partially select a non-text node.
+  var startContainer = range.startContainer;
+  var endContainer = range.endContainer;
+  var commonAncestor = range.commonAncestorContainer;
+
+  // If start and end are in different block-level elements, wrapping will fail
+  if (startContainer !== endContainer) {
+    // Check if the common ancestor is a text node (impossible for cross-element)
+    // or if the range partially selects element children
+    var startBlock = _wrGetBlockParent(startContainer, page);
+    var endBlock = _wrGetBlockParent(endContainer, page);
+    if (startBlock !== endBlock) {
+      console.warn('[Comments] Validation failed: selection crosses block boundaries.');
+      alert('Cannot add comment: the selection spans multiple paragraphs or elements. Please select text within a single block.');
+      return;
     }
-    parent.removeChild(testSpan);
-  } catch (e) {
-    // Selection crosses element boundaries — show notification and abort
-    alert('Cannot add comment: the selection spans multiple paragraphs or elements. Please select text within a single block.');
-    return;
+
+    // Additional check: if commonAncestor is an element and range partially selects children
+    if (commonAncestor.nodeType === Node.ELEMENT_NODE) {
+      var startIdx = _wrNodeIndex(range.startContainer, commonAncestor);
+      var endIdx = _wrNodeIndex(range.endContainer, commonAncestor);
+      // Check that no element nodes are partially selected between start and end
+      for (var ci = startIdx; ci <= endIdx; ci++) {
+        var child = commonAncestor.childNodes[ci];
+        if (child && child.nodeType === Node.ELEMENT_NODE) {
+          // If an element child is partially (not fully) within the range, surroundContents will fail
+          if (ci === startIdx && range.startOffset > 0 && range.startContainer === child) {
+            console.warn('[Comments] Validation failed: partial element selection detected.');
+            alert('Cannot add comment: the selection spans multiple paragraphs or elements. Please select text within a single block.');
+            return;
+          }
+        }
+      }
+    }
   }
 
   // Show the inline comment popover (Req 1.1, 7.1)
   wrShowCommentPopover(range);
+}
+
+/* ── Helper: find the nearest block-level parent of a node within a boundary ── */
+function _wrGetBlockParent(node, boundary) {
+  var blockTags = /^(P|H[1-6]|LI|DIV|BLOCKQUOTE|PRE|TABLE|TR|TD|TH|UL|OL|SECTION|ARTICLE)$/i;
+  var current = node;
+  while (current && current !== boundary) {
+    if (current.nodeType === Node.ELEMENT_NODE && blockTags.test(current.tagName)) {
+      return current;
+    }
+    current = current.parentNode;
+  }
+  return boundary;
+}
+
+/* ── Helper: get the index of a node relative to an ancestor ── */
+function _wrNodeIndex(node, ancestor) {
+  var current = node;
+  while (current.parentNode && current.parentNode !== ancestor) {
+    current = current.parentNode;
+  }
+  var children = ancestor.childNodes;
+  for (var i = 0; i < children.length; i++) {
+    if (children[i] === current) return i;
+  }
+  return 0;
 }
 
 /* ── Render comments list ── */
@@ -2542,7 +2957,10 @@ function wrRenderComments() {
   var countEl = document.getElementById('wr-comments-count');
   var emptyEl = document.getElementById('wr-comments-empty');
   var panelEl = document.getElementById('wr-comments-panel');
-  if (!listEl) return;
+  if (!listEl) {
+    console.warn('[Comments] Render failed: #wr-comments-list not found.');
+    return;
+  }
 
   countEl.textContent = _wrComments.length;
 
@@ -2554,13 +2972,24 @@ function wrRenderComments() {
   }
 
   if (_wrComments.length === 0) {
+    // Recreate the empty message element if it was destroyed by a previous innerHTML assignment
+    if (!emptyEl) {
+      emptyEl = document.createElement('div');
+      emptyEl.className = 'wr-comments-empty';
+      emptyEl.id = 'wr-comments-empty';
+      emptyEl.textContent = 'No comments yet. Select text and click "Add Comment" to start.';
+    }
     listEl.innerHTML = '';
     listEl.appendChild(emptyEl);
     emptyEl.style.display = 'block';
     return;
   }
 
-  emptyEl.style.display = 'none';
+  // Hide the empty element if it still exists in the DOM (before innerHTML replaces children)
+  if (emptyEl) {
+    emptyEl.style.display = 'none';
+  }
+
   var html = '';
   for (var i = 0; i < _wrComments.length; i++) {
     var c = _wrComments[i];
@@ -2587,8 +3016,8 @@ function wrRenderComments() {
       '</div>';
     }
     html += '</div>' +
-      '<div class="wr-reply-input-area" id="reply-input-' + c.id + '" style="display:none;">' +
-        '<textarea class="wr-reply-input" maxlength="500" placeholder="Reply\u2026"></textarea>' +
+      '<div class="wr-reply-input-area" id="reply-input-' + c.id + '" style="display:none;" onclick="event.stopPropagation()">' +
+        '<textarea class="wr-reply-input" maxlength="500" placeholder="Reply\u2026" onclick="event.stopPropagation()" onmousedown="event.stopPropagation()"></textarea>' +
         '<div class="wr-reply-input-actions">' +
           '<button class="btn-sm btn-green wr-reply-submit" onclick="wrSubmitReply(\'' + c.id + '\');event.stopPropagation();">Reply</button>' +
           '<button class="btn-sm btn-grey wr-reply-cancel" onclick="wrHideReplyInput(\'' + c.id + '\');event.stopPropagation();">Cancel</button>' +
@@ -2645,6 +3074,9 @@ function wrDeleteComment(id) {
     }
     parent.removeChild(el);
     parent.normalize();
+    console.log('[Comments] Removed highlight for:', id);
+  } else {
+    console.warn('[Comments] No highlight element found for:', id, '(may be orphaned).');
   }
 
   // Remove from array
@@ -2679,7 +3111,7 @@ function wrAddReply(commentId, replyText) {
   comment.replies.push({
     id: replyId,
     text: replyText.trim(),
-    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    time: _wrTimestamp()
   });
 
   wrRenderComments();
@@ -2709,7 +3141,10 @@ function wrShowReplyInput(commentId) {
   if (area) {
     area.style.display = 'block';
     var textarea = area.querySelector('.wr-reply-input');
-    if (textarea) textarea.focus();
+    if (textarea) {
+      // Deferred focus to prevent event-cycle focus theft
+      setTimeout(function() { textarea.focus(); }, 0);
+    }
   }
 }
 
@@ -2991,6 +3426,7 @@ function wrLoadComments() {
   try {
     data = JSON.parse(raw);
   } catch (e) {
+    console.warn('[Comments] Load failed: invalid JSON in localStorage.');
     return; // Invalid JSON, skip restoration
   }
 
@@ -3002,8 +3438,23 @@ function wrLoadComments() {
     _wrCommentId = data.commentIdCounter;
   }
 
+  var page = document.getElementById('wr-page');
+  var editorEmpty = !page || !page.textContent || page.textContent.trim().length === 0;
+
+  // If editor is empty, discard all saved comments (they are all orphaned)
+  if (editorEmpty) {
+    console.log('[Comments] Editor is empty on load — discarding saved comments.');
+    try {
+      localStorage.removeItem('wr-comments-data');
+    } catch (e) { /* ignore */ }
+    _wrCommentId = 0;
+    return;
+  }
+
   // Restore each comment
   var comments = data.comments || [];
+  var restoredCount = 0;
+  var orphanedCount = 0;
   for (var i = 0; i < comments.length; i++) {
     var comment = comments[i];
 
@@ -3016,13 +3467,375 @@ function wrLoadComments() {
     // If restoration fails, mark as orphaned
     if (!restored) {
       comment.orphaned = true;
+      orphanedCount++;
+    } else {
+      restoredCount++;
     }
 
     _wrComments.push(comment);
   }
+
+  console.log('[Comments] Loaded:', restoredCount, 'restored,', orphanedCount, 'orphaned.');
 
   // Render all comments (including orphaned ones)
   wrRenderComments();
 }
 
 /* ── Hide comment button — no-op (floating button removed) ── */
+
+
+/* ============================================================
+   MARKITDOWN — File/URL to Markdown Converter
+   [FRONTEND: UI] — File handling, IPC calls, result display
+   ============================================================ */
+
+var _mdSelectedFile = null;
+var _mdMarkdownContent = '';
+var _mdOutputFilename = '';
+
+const MD_SUPPORTED_EXTENSIONS = [
+  '.pdf','.docx','.pptx','.xlsx','.html','.htm',
+  '.png','.jpg','.jpeg','.gif','.bmp','.tiff',
+  '.mp3','.wav','.epub','.msg','.ipynb','.zip',
+  '.csv','.json','.xml','.txt','.md','.rst'
+];
+const MD_MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+
+/* ── Initialization ── */
+(function mdInit() {
+  function setup() {
+    var dropArea = document.getElementById('md-drop-area');
+    var fileInput = document.getElementById('md-file-input');
+    var urlInput = document.getElementById('md-url-input');
+
+    if (!dropArea) return; // Tab not present
+
+    // Drag & drop
+    dropArea.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      dropArea.classList.add('dragover');
+    });
+    dropArea.addEventListener('dragleave', function() {
+      dropArea.classList.remove('dragover');
+    });
+    dropArea.addEventListener('drop', function(e) {
+      e.preventDefault();
+      dropArea.classList.remove('dragover');
+      if (e.dataTransfer.files.length > 0) {
+        mdHandleFile(e.dataTransfer.files[0]);
+      }
+    });
+
+    // File input change
+    fileInput.addEventListener('change', function() {
+      if (fileInput.files.length > 0) {
+        mdHandleFile(fileInput.files[0]);
+      }
+    });
+
+    // URL input — enable/disable convert button
+    urlInput.addEventListener('input', function() {
+      mdUpdateConvertBtn();
+    });
+  }
+
+  // Run setup immediately if DOM is ready, otherwise wait
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setup);
+  } else {
+    setup();
+  }
+})();
+
+function mdHandleFile(file) {
+  mdHideAlert();
+
+  // Validate extension
+  var ext = '.' + file.name.split('.').pop().toLowerCase();
+  if (MD_SUPPORTED_EXTENSIONS.indexOf(ext) === -1) {
+    mdShowAlert('Unsupported file type. Supported: ' + MD_SUPPORTED_EXTENSIONS.join(', '), 'error');
+    return;
+  }
+
+  // Validate size
+  if (file.size > MD_MAX_FILE_SIZE) {
+    mdShowAlert('File size exceeds the 50 MB limit.', 'error');
+    return;
+  }
+
+  _mdSelectedFile = file;
+  document.getElementById('md-file-name').textContent = file.name;
+  document.getElementById('md-file-size').textContent = mdFormatSize(file.size);
+  document.getElementById('md-file-info').style.display = 'block';
+  mdUpdateConvertBtn();
+}
+
+function mdClearFile() {
+  _mdSelectedFile = null;
+  document.getElementById('md-file-input').value = '';
+  document.getElementById('md-file-info').style.display = 'none';
+  mdUpdateConvertBtn();
+}
+
+function mdUpdateConvertBtn() {
+  var urlInput = document.getElementById('md-url-input');
+  var btn = document.getElementById('md-convert-btn');
+  btn.disabled = !(_mdSelectedFile || (urlInput && urlInput.value.trim()));
+}
+
+function mdFormatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+/* ── Convert ── */
+async function mdConvert() {
+  mdHideAlert();
+  var urlInput = document.getElementById('md-url-input');
+
+  if (!_mdSelectedFile && !urlInput.value.trim()) return;
+
+  // Check if API is available
+  if (!window.api || !window.api.markitdownConvert) {
+    mdShowAlert('Error: Backend API not available. Ensure the app is running in Electron.', 'error');
+    return;
+  }
+
+  // Show loading
+  document.getElementById('md-loading').style.display = 'block';
+  document.getElementById('md-convert-btn').disabled = true;
+  document.getElementById('md-output').style.display = 'none';
+
+  try {
+    var response;
+
+    if (_mdSelectedFile) {
+      // File conversion — read file as base64, send via IPC
+      var fileData;
+      try {
+        fileData = await mdFileToBase64(_mdSelectedFile);
+      } catch (readErr) {
+        throw new Error('Failed to read file: ' + (readErr.message || 'file may have been moved or deleted'));
+      }
+
+      if (!fileData) {
+        throw new Error('File appears to be empty or could not be read.');
+      }
+
+      response = await window.api.markitdownConvert({
+        mode: 'file',
+        filename: _mdSelectedFile.name,
+        fileData: fileData
+      });
+    } else {
+      // URL conversion
+      var url = urlInput.value.trim();
+      if (!/^https?:\/\//i.test(url)) {
+        url = 'https://' + url;
+      }
+      response = await window.api.markitdownConvert({
+        mode: 'url',
+        url: url
+      });
+    }
+
+    // Hide loading
+    document.getElementById('md-loading').style.display = 'none';
+    mdUpdateConvertBtn();
+
+    // Validate response structure
+    if (!response) {
+      mdShowAlert('Error: No response received from backend. The conversion may have timed out.', 'error');
+      return;
+    }
+
+    if (response.success) {
+      var data = response.data || {};
+      _mdMarkdownContent = data.markdown || '';
+      _mdOutputFilename = data.filename || 'output.md';
+
+      if (!_mdMarkdownContent.trim()) {
+        mdShowAlert('No content was extracted from the source. The file may be empty, password-protected, or in an unsupported format variation.', 'error');
+        document.getElementById('md-output').style.display = 'none';
+        return;
+      }
+
+      document.getElementById('md-raw-view').value = _mdMarkdownContent;
+      document.getElementById('md-output').style.display = 'block';
+      mdShowRaw();
+      mdShowAlert('Conversion successful! (' + mdFormatSize(_mdMarkdownContent.length) + ' of Markdown)', 'success');
+    } else {
+      var errMsg = (response.error && response.error.message) ? response.error.message : 'Conversion failed. Please try a different file or check the format.';
+      mdShowAlert(errMsg, 'error');
+    }
+
+  } catch (err) {
+    document.getElementById('md-loading').style.display = 'none';
+    mdUpdateConvertBtn();
+    var msg = err.message || 'Unknown error';
+    if (msg.indexOf('timed out') !== -1) {
+      mdShowAlert('Conversion timed out. The file may be too large or complex. Try a smaller file.', 'error');
+    } else if (msg.indexOf('Backend not available') !== -1 || msg.indexOf('not available') !== -1) {
+      mdShowAlert('Backend is not available. Please restart the application.', 'error');
+    } else {
+      mdShowAlert('Error: ' + msg, 'error');
+    }
+  }
+}
+
+function mdFileToBase64(file) {
+  return new Promise(function(resolve, reject) {
+    var reader = new FileReader();
+    reader.onload = function() {
+      // result is "data:<type>;base64,<data>" — strip prefix
+      var b64 = reader.result.split(',')[1];
+      resolve(b64);
+    };
+    reader.onerror = function() { reject(new Error('Failed to read file')); };
+    reader.readAsDataURL(file);
+  });
+}
+
+/* ── View Toggle ── */
+function mdShowRaw() {
+  document.getElementById('md-raw-view').style.display = 'block';
+  document.getElementById('md-rendered-view').style.display = 'none';
+  document.getElementById('md-btn-raw').style.background = '#495057';
+  document.getElementById('md-btn-raw').style.color = '#fff';
+  document.getElementById('md-btn-rendered').style.background = '';
+  document.getElementById('md-btn-rendered').style.color = '';
+  document.getElementById('md-btn-rendered').className = 'btn-sm btn-grey';
+}
+
+function mdShowRendered() {
+  document.getElementById('md-raw-view').style.display = 'none';
+  document.getElementById('md-rendered-view').style.display = 'block';
+  document.getElementById('md-btn-rendered').style.background = '#495057';
+  document.getElementById('md-btn-rendered').style.color = '#fff';
+  document.getElementById('md-btn-raw').style.background = '';
+  document.getElementById('md-btn-raw').style.color = '';
+  document.getElementById('md-btn-raw').className = 'btn-sm btn-grey';
+
+  // Render Markdown to HTML (basic rendering without external libs)
+  var html = mdRenderMarkdown(_mdMarkdownContent);
+  document.getElementById('md-rendered-view').innerHTML = html;
+}
+
+function mdRenderMarkdown(text) {
+  // Basic Markdown rendering without external dependencies
+  // Handles: headings, bold, italic, code blocks, inline code, links, lists, blockquotes, hr, tables
+  var html = text;
+
+  // Escape HTML
+  html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // Code blocks (fenced)
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, function(m, lang, code) {
+    return '<pre><code>' + code.trim() + '</code></pre>';
+  });
+
+  // Inline code
+  html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+
+  // Headings
+  html = html.replace(/^#{6}\s+(.+)$/gm, '<h6>$1</h6>');
+  html = html.replace(/^#{5}\s+(.+)$/gm, '<h5>$1</h5>');
+  html = html.replace(/^#{4}\s+(.+)$/gm, '<h4>$1</h4>');
+  html = html.replace(/^#{3}\s+(.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^#{2}\s+(.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^#{1}\s+(.+)$/gm, '<h1>$1</h1>');
+
+  // Horizontal rule
+  html = html.replace(/^---+$/gm, '<hr>');
+
+  // Bold & italic
+  html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+  // Links
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+
+  // Images — show as alt text
+  html = html.replace(/!\[([^\]]*)\]\([^)]+\)/g, '<span style="color:#888;">[Image: $1]</span>');
+
+  // Blockquotes
+  html = html.replace(/^&gt;\s?(.+)$/gm, '<blockquote>$1</blockquote>');
+
+  // Unordered lists
+  html = html.replace(/^[\*\-]\s+(.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>');
+  // Collapse adjacent ul tags
+  html = html.replace(/<\/ul>\s*<ul>/g, '');
+
+  // Line breaks → paragraphs
+  html = html.replace(/\n\n/g, '</p><p>');
+  html = '<p>' + html + '</p>';
+  html = html.replace(/<p>\s*<\/p>/g, '');
+  html = html.replace(/<p>\s*(<h[1-6]>)/g, '$1');
+  html = html.replace(/(<\/h[1-6]>)\s*<\/p>/g, '$1');
+  html = html.replace(/<p>\s*(<pre>)/g, '$1');
+  html = html.replace(/(<\/pre>)\s*<\/p>/g, '$1');
+  html = html.replace(/<p>\s*(<ul>)/g, '$1');
+  html = html.replace(/(<\/ul>)\s*<\/p>/g, '$1');
+  html = html.replace(/<p>\s*(<blockquote>)/g, '$1');
+  html = html.replace(/(<\/blockquote>)\s*<\/p>/g, '$1');
+  html = html.replace(/<p>\s*(<hr>)/g, '$1');
+  html = html.replace(/(<hr>)\s*<\/p>/g, '$1');
+
+  return html;
+}
+
+/* ── Download ── */
+function mdDownload() {
+  if (!_mdMarkdownContent) return;
+  var blob = new Blob([_mdMarkdownContent], { type: 'text/markdown;charset=utf-8' });
+  saveAs(blob, _mdOutputFilename);
+}
+
+/* ── Copy ── */
+function mdCopy() {
+  if (!_mdMarkdownContent) return;
+  var copyBtn = document.getElementById('md-copy-btn');
+  navigator.clipboard.writeText(_mdMarkdownContent).then(function() {
+    var originalText = copyBtn.textContent;
+    copyBtn.textContent = '✓ Copied!';
+    setTimeout(function() { copyBtn.textContent = originalText; }, 3000);
+  }).catch(function() {
+    mdShowAlert('Copy to clipboard failed. Select and copy manually.', 'error');
+  });
+}
+
+/* ── Clear ── */
+function mdClear() {
+  mdClearFile();
+  document.getElementById('md-url-input').value = '';
+  document.getElementById('md-output').style.display = 'none';
+  document.getElementById('md-loading').style.display = 'none';
+  _mdMarkdownContent = '';
+  _mdOutputFilename = '';
+  mdHideAlert();
+  mdUpdateConvertBtn();
+}
+
+/* ── Alert display ── */
+function mdShowAlert(message, type) {
+  var el = document.getElementById('md-alert');
+  el.textContent = message;
+  el.style.display = 'block';
+  if (type === 'success') {
+    el.style.background = '#d4edda';
+    el.style.border = '1px solid #c3e6cb';
+    el.style.color = '#155724';
+    setTimeout(mdHideAlert, 3000);
+  } else {
+    el.style.background = '#f8d7da';
+    el.style.border = '1px solid #f5c6cb';
+    el.style.color = '#721c24';
+  }
+}
+
+function mdHideAlert() {
+  document.getElementById('md-alert').style.display = 'none';
+}

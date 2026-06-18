@@ -39,17 +39,18 @@
 
 <!-- TABS -->
 <div class="tabs">
-  <span class="tab active" onclick="openTab('converter',event)">DOC to DITA</span>
+  <span class="tab"        onclick="openTab('converter',event)">DOC to DITA</span>
   <!-- Temporarily disabled — reserved for future release -->
   <!-- <span class="tab"        onclick="openTab('analyzer',event)">Impact Analyzer</span> -->
   <span class="tab"        onclick="openTab('contentAnalysis',event)">Content Analysis</span>
-  <span class="tab"        onclick="openTab('rewrite',event)">Initial Draft</span>
+  <span class="tab active" onclick="openTab('rewrite',event)">Initial Draft</span>
+  <span class="tab"        onclick="openTab('markitdown',event)">MarkItDown</span>
 </div>
 
 <!-- ═══════════════════════════════════════════════
      TAB 1: DITA CONVERTER
      ═══════════════════════════════════════════════ -->
-<div id="converter" class="section">
+<div id="converter" class="section" style="display:none">
   <h2>DOC to DITA Converter</h2>
   <textarea id="docInput" placeholder="Paste document content"></textarea>
   <br>
@@ -189,6 +190,8 @@
   <div style="margin-top:10px;">
     <button onclick="runCA()">Analyze Content</button>
     <button class="btn-grey" onclick="clearCA()">Clear</button>
+    <button class="btn-grey" onclick="caGlobalUndo()" id="ca-undo-btn" title="Undo last fix (Ctrl+Z)">↩ Undo</button>
+    <button class="btn-grey" onclick="caGlobalRedo()" id="ca-redo-btn" title="Redo last undone fix (Ctrl+Y)">↪ Redo</button>
   </div>
 
   <!-- ── RESULTS ── -->
@@ -210,17 +213,17 @@
           <div class="ca-legend-item"><span class="leg-dot" style="background:#dbeafe;border:1px solid #3b82f6;"></span>Structure</div>
         </div>
 
+
+
         <!-- Annotated Text -->
         <div class="annotated-hint"><span>💡</span> Click any colored word to open the inline fix panel.</div>
-        <div id="ca-annotated"></div>
+        <div id="ca-annotated" contenteditable="true" spellcheck="false"></div>
 
         <!-- Apply All / Download -->
         <div style="margin-top:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-          <button class="btn-green" onclick="applyFixes()">⚡ Apply All Auto-fixes</button>
           <button onclick="caSendToDita()" title="Send latest content to Doc to DITA tab">📄 Send to Doc to DITA</button>
           <button class="btn-grey" onclick="caCopyResults()" title="Copy results to clipboard">📋 Copy Results</button>
           <button class="btn-grey" onclick="caDownloadResults()" title="Download results as .txt">⬇ Download Results</button>
-          <span style="font-size:12px;color:#666;">Applies all safe replacements and removals.</span>
         </div>
 
         <div id="ca-fixed-section" style="display:none;margin-top:16px;">
@@ -266,7 +269,7 @@
 <!-- ═══════════════════════════════════════════════
      TAB 4: WRITE (lightweight Word processor)
      ═══════════════════════════════════════════════ -->
-<div id="rewrite" class="section" style="display:none;padding:0;">
+<div id="rewrite" class="section" style="padding:0;">
 
   <!-- ── Menu bar ── -->
   <div id="wr-menubar" style="display:flex;align-items:center;gap:0;background:#f3f3f3;border-bottom:1px solid #d0d0d0;padding:4px 10px;flex-wrap:wrap;">
@@ -417,7 +420,7 @@
   <!-- ── Page canvas + Comments panel ── -->
   <div class="wr-editor-layout">
     <div class="wr-editor-main">
-      <div id="wr-canvas" style="background:#e8e8e8;padding:28px 0;min-height:600px;overflow-y:auto;" onclick="document.getElementById('wr-page').focus()">
+      <div id="wr-canvas" style="background:#e8e8e8;padding:28px 0;min-height:600px;overflow-y:auto;" onclick="if(!event.target.closest('#wr-comment-popover'))document.getElementById('wr-page').focus()">
         <div id="wr-page"
           contenteditable="true"
           spellcheck="true"
@@ -480,6 +483,93 @@
   <div id="wr-table-overlay" style="display:none;position:fixed;inset:0;z-index:9998;" onclick="wrCloseTableDialog()"></div>
 
 </div><!-- end rewrite/Write tab -->
+
+<!-- ═══════════════════════════════════════════════
+     TAB 5: MARKITDOWN — File/URL to Markdown Converter
+     ═══════════════════════════════════════════════ -->
+<div id="markitdown" class="section" style="display:none">
+  <h2>MarkItDown — Convert to Markdown</h2>
+  <p style="font-size:13px;color:#666;margin-top:0;margin-bottom:18px;">
+    Convert files (PDF, Word, PowerPoint, Excel, HTML, images, audio, and more) or URLs to Markdown format.
+  </p>
+
+  <!-- Input Area -->
+  <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:18px;">
+
+    <!-- File Upload -->
+    <div style="flex:1;min-width:280px;background:#f8fafc;border:1px solid #dde3ea;border-radius:8px;padding:16px;">
+      <div style="font-weight:600;font-size:13px;color:#1a2332;margin-bottom:8px;">📂 Upload a File</div>
+      <div id="md-drop-area" style="border:2px dashed #adb5bd;border-radius:8px;padding:24px;text-align:center;cursor:pointer;transition:border-color 0.2s,background 0.2s;"
+           onclick="document.getElementById('md-file-input').click()">
+        <p style="margin:0;color:#666;">Drag &amp; drop a file here or click to browse</p>
+        <small style="color:#999;">PDF, Word, PowerPoint, Excel, HTML, Images, Audio, EPUB, and more</small>
+      </div>
+      <input type="file" id="md-file-input" style="display:none;"
+             accept=".pdf,.docx,.pptx,.xlsx,.html,.htm,.png,.jpg,.jpeg,.gif,.bmp,.tiff,.mp3,.wav,.epub,.msg,.ipynb,.zip,.csv,.json,.xml,.txt,.md,.rst">
+      <div id="md-file-info" style="margin-top:8px;font-size:12px;color:#007cba;font-weight:600;display:none;">
+        <span id="md-file-name"></span> — <span id="md-file-size"></span>
+        <button style="margin-left:8px;font-size:11px;padding:2px 6px;border:1px solid #ccc;border-radius:3px;cursor:pointer;background:#fff;" onclick="mdClearFile()">✕</button>
+      </div>
+    </div>
+
+    <!-- URL Input -->
+    <div style="flex:1;min-width:280px;background:#f8fafc;border:1px solid #dde3ea;border-radius:8px;padding:16px;">
+      <div style="font-weight:600;font-size:13px;color:#1a2332;margin-bottom:8px;">🔗 Enter a URL</div>
+      <input type="text" id="md-url-input" placeholder="https://example.com" maxlength="2048"
+             style="width:100%;padding:10px 12px;border:1px solid #ccc;border-radius:6px;font-size:13px;box-sizing:border-box;">
+      <div style="font-size:11px;color:#999;margin-top:6px;">Supports web pages, YouTube, Wikipedia, RSS feeds</div>
+    </div>
+
+  </div>
+
+  <!-- Convert Button -->
+  <div style="margin-bottom:18px;">
+    <button id="md-convert-btn" onclick="mdConvert()" disabled>▶ Convert to Markdown</button>
+    <button class="btn-grey" onclick="mdClear()">Clear</button>
+  </div>
+
+  <!-- Loading -->
+  <div id="md-loading" style="display:none;text-align:center;padding:20px;">
+    <div style="display:inline-block;width:24px;height:24px;border:3px solid #ddd;border-top-color:#007cba;border-radius:50%;animation:md-spin 0.8s linear infinite;"></div>
+    <p style="margin:8px 0 0;color:#666;font-size:13px;">Converting, please wait…</p>
+  </div>
+
+  <!-- Error/Success Message -->
+  <div id="md-alert" style="display:none;padding:12px;border-radius:6px;font-size:13px;margin-bottom:14px;"></div>
+
+  <!-- Output Section -->
+  <div id="md-output" style="display:none;">
+    <!-- View Toggle -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+      <button id="md-btn-raw" class="btn-sm" style="background:#495057;color:#fff;" onclick="mdShowRaw()">Raw Markdown</button>
+      <button id="md-btn-rendered" class="btn-sm btn-grey" onclick="mdShowRendered()">Rendered Preview</button>
+      <div style="margin-left:auto;display:flex;gap:8px;">
+        <button id="md-download-btn" class="btn-sm" style="background:#007cba;color:#fff;" onclick="mdDownload()">⬇ Download .md</button>
+        <button id="md-copy-btn" class="btn-sm btn-grey" onclick="mdCopy()">📋 Copy</button>
+      </div>
+    </div>
+
+    <!-- Raw View -->
+    <textarea id="md-raw-view" readonly
+              style="width:100%;min-height:300px;max-height:500px;resize:vertical;font-family:'Courier New',monospace;font-size:12px;padding:12px;border:1px solid #dde3ea;border-radius:6px;background:#f6f8fa;box-sizing:border-box;"></textarea>
+
+    <!-- Rendered View -->
+    <div id="md-rendered-view"
+         style="display:none;min-height:300px;max-height:500px;overflow-y:auto;padding:16px;border:1px solid #dde3ea;border-radius:6px;background:#fff;font-size:13px;line-height:1.6;"></div>
+  </div>
+</div>
+
+<style>
+  @keyframes md-spin { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
+  #md-drop-area:hover, #md-drop-area.dragover { border-color:#007cba; background:#f0f7ff; }
+  #md-rendered-view h1,#md-rendered-view h2,#md-rendered-view h3 { margin-top:1rem;margin-bottom:0.5rem; }
+  #md-rendered-view pre { background:#f6f8fa;padding:12px;border-radius:4px;overflow-x:auto; }
+  #md-rendered-view code { font-family:'Courier New',monospace;font-size:0.9em; }
+  #md-rendered-view table { border-collapse:collapse;width:100%;margin:12px 0; }
+  #md-rendered-view th,#md-rendered-view td { border:1px solid #dde3ea;padding:6px 10px;text-align:left; }
+  #md-rendered-view th { background:#f8f9fa; }
+  #md-rendered-view blockquote { border-left:4px solid #dde3ea;padding-left:12px;color:#666;margin:12px 0; }
+</style>
 
 <!-- ════════════════════════════════════════════════════════
      JAVASCRIPT

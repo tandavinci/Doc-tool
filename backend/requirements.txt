@@ -1,2 +1,2 @@
 # Backend dependencies
-# No external dependencies required - uses Python standard library only
+markitdown[all]

@@ -9,9 +9,9 @@
     "build-backend": "pyinstaller --distpath ./backend-dist --workpath ./build-backend --clean backend.spec",
     "dist": "npm run build-backend && electron-builder --win",
     "dist-portable": "npm run build-backend && electron-builder --win portable",
+    "dist-all": "npm run build-backend && electron-builder --win nsis --win portable",
     "pack": "electron-builder --dir"
   },
-  "dependencies": {},
   "devDependencies": {
     "electron": "^31.7.7",
     "electron-builder": "^25.1.8"
@@ -31,21 +31,29 @@
       {
         "from": "backend-dist/backend/",
         "to": "backend",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
-      "icon": null
+      "icon": null,
+      "signAndEditExecutable": false,
+      "signingHashAlgorithms": null
     },
     "nsis": {
       "oneClick": false,
