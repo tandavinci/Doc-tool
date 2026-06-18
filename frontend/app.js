@@ -2190,6 +2190,20 @@ function wrNew() {
     if (!confirm('Start a new document? Unsaved changes will be lost.')) return;
   }
   document.getElementById('wr-page').innerHTML = '<p><br></p>';
+
+  // Reset comment state for new document
+  _wrComments = [];
+  _wrCommentId = 0;
+  _wrPendingRange = null;
+  _wrPopoverOpen = false;
+  wrHideCommentPopover();
+  try {
+    localStorage.removeItem('wr-comments-data');
+  } catch (e) {
+    console.warn('[Comments] Could not clear localStorage:', e.message);
+  }
+  wrRenderComments();
+
   wrUpdate();
   updateTitleBar();
 }
@@ -2553,6 +2567,19 @@ document.addEventListener('keydown', function(e) {
 var _wrComments = []; // { id, text, snippet, range serialization }
 var _wrCommentId = 0;
 var _wrPendingRange = null; // Holds the selection range while the popover is open
+var _wrPopoverOpen = false; // Guard flag to track popover open state
+
+/* ── Timestamp helper: returns "MMM D, YYYY HH:MM" format ── */
+function _wrTimestamp() {
+  var now = new Date();
+  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var month = months[now.getMonth()];
+  var day = now.getDate();
+  var year = now.getFullYear();
+  var hours = String(now.getHours()).padStart(2, '0');
+  var minutes = String(now.getMinutes()).padStart(2, '0');
+  return month + ' ' + day + ', ' + year + ' ' + hours + ':' + minutes;
+}
 
 /* ── Show/hide floating "Add Comment" button — REMOVED ── */
 /* Comments are now triggered from the toolbar button only. */
@@ -2566,8 +2593,14 @@ function wrShowCommentPopover(range) {
   var canvas = document.getElementById('wr-canvas');
   if (!popover || !canvas) return;
 
+  // If popover is already open, close it first to reset state cleanly
+  if (_wrPopoverOpen) {
+    wrHideCommentPopover();
+  }
+
   // Store the range for later use when submitting
   _wrPendingRange = range;
+  _wrPopoverOpen = true;
 
   // Get the bounding rect of the selection range
   var rangeRect = range.getBoundingClientRect();
@@ -2584,15 +2617,30 @@ function wrShowCommentPopover(range) {
   }
   if (left < 8) left = 8;
 
+  // Clamp top so popover doesn't overflow below the visible canvas viewport
+  var popoverHeight = 160; // approximate rendered height of popover
+  var canvasVisibleBottom = canvas.scrollTop + canvas.clientHeight;
+  if (top + popoverHeight > canvasVisibleBottom) {
+    // Try placing above the selection instead
+    var topAbove = rangeRect.top - canvasRect.top + canvas.scrollTop - popoverHeight - 8;
+    if (topAbove >= canvas.scrollTop) {
+      top = topAbove;
+    } else {
+      // Clamp to bottom of visible area as last resort
+      top = canvasVisibleBottom - popoverHeight - 8;
+    }
+  }
+  if (top < canvas.scrollTop + 8) top = canvas.scrollTop + 8;
+
   popover.style.top = top + 'px';
   popover.style.left = left + 'px';
   popover.style.display = 'block';
 
-  // Focus the textarea
+  // Focus the textarea after a microtask to ensure focus is not stolen by bubbling events
   var textarea = document.getElementById('wr-comment-popover-input');
   if (textarea) {
     textarea.value = '';
-    textarea.focus();
+    setTimeout(function() { textarea.focus(); }, 0);
   }
 }
 
@@ -2609,8 +2657,9 @@ function wrHideCommentPopover() {
     textarea.value = '';
   }
 
-  // Clear the stored range
+  // Clear the stored range and guard flag
   _wrPendingRange = null;
+  _wrPopoverOpen = false;
 }
 
 /* ── Comment Popover: Submit ── */
@@ -2626,51 +2675,85 @@ function wrSubmitCommentFromPopover() {
     return;
   }
 
-  // If we have a pending range, create the comment
-  if (_wrPendingRange) {
-    var range = _wrPendingRange;
-    var snippet = range.toString().trim();
+  // Guard: if no pending range, log and abort
+  if (!_wrPendingRange) {
+    console.warn('[Comments] Submit failed: _wrPendingRange is null. Popover will close.');
+    wrHideCommentPopover();
+    return;
+  }
 
-    _wrCommentId++;
-    var id = 'wrc-' + _wrCommentId;
+  var range = _wrPendingRange;
+  var page = document.getElementById('wr-page');
 
-    // Restore selection from stored range
-    var sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-
-    // Wrap selected text in a highlight span
-    var mark = document.createElement('span');
-    mark.className = 'wr-comment-highlight';
-    mark.setAttribute('data-comment-id', id);
-    mark.title = text.trim();
-    try {
-      range.surroundContents(mark);
-    } catch (e) {
-      // surroundContents fails if selection crosses element boundaries (Req 1.7)
-      // Show notification and leave editor unchanged
-      alert('Cannot add comment: the selection spans multiple paragraphs or elements. Please select text within a single block.');
+  // Validate the range is still valid and within the editor
+  try {
+    var rangeText = range.toString();
+    var snippet = rangeText.trim();
+    if (!snippet) {
+      console.warn('[Comments] Submit failed: range text is empty (selection may have been lost).');
       wrHideCommentPopover();
       return;
     }
-
-    // Store comment
-    _wrComments.push({
-      id: id,
-      text: text.trim(),
-      snippet: snippet.slice(0, 60),
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      replies: []
-    });
-
-    // Clear selection
-    window.getSelection().removeAllRanges();
-
-    // Render comments panel
-    wrRenderComments();
-    wrUpdate();
-    wrSaveComments();
+    if (!page || !page.contains(range.startContainer) || !page.contains(range.endContainer)) {
+      console.warn('[Comments] Submit failed: range is no longer within the editor.');
+      wrHideCommentPopover();
+      return;
+    }
+  } catch (e) {
+    console.warn('[Comments] Submit failed: range validation threw:', e.message);
+    wrHideCommentPopover();
+    return;
   }
+
+  _wrCommentId++;
+  var id = 'wrc-' + _wrCommentId;
+
+  // Restore selection from stored range
+  var sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+
+  // Wrap selected text in a highlight span
+  var mark = document.createElement('span');
+  mark.className = 'wr-comment-highlight';
+  mark.setAttribute('data-comment-id', id);
+  mark.title = text.trim();
+  try {
+    range.surroundContents(mark);
+  } catch (e) {
+    // surroundContents fails if selection crosses element boundaries (Req 1.7)
+    console.warn('[Comments] Creation failed: surroundContents threw:', e.message);
+    alert('Cannot add comment: the selection spans multiple paragraphs or elements. Please select text within a single block.');
+    // Rollback the ID increment
+    _wrCommentId--;
+    wrHideCommentPopover();
+    return;
+  }
+
+  // Normalize parent to merge adjacent text nodes created by surroundContents
+  if (mark.parentNode) {
+    mark.parentNode.normalize();
+  }
+
+  // Store comment
+  var snippet = range.toString().trim() || mark.textContent.trim();
+  _wrComments.push({
+    id: id,
+    text: text.trim(),
+    snippet: snippet.slice(0, 60),
+    time: _wrTimestamp(),
+    replies: []
+  });
+
+  console.log('[Comments] Created comment:', id, '| snippet:', snippet.slice(0, 30));
+
+  // Clear selection
+  window.getSelection().removeAllRanges();
+
+  // Render comments panel
+  wrRenderComments();
+  wrUpdate();
+  wrSaveComments();
 
   wrHideCommentPopover();
 }
@@ -2720,6 +2803,11 @@ function wrSubmitCommentFromPopover() {
 
       // Check if click is outside the popover
       if (!popover.contains(e.target)) {
+        // Don't dismiss if clicking the Comment toolbar button (it will handle open/close itself)
+        var commentBtn = document.getElementById('wr-comment-btn');
+        if (commentBtn && (commentBtn === e.target || commentBtn.contains(e.target))) {
+          return;
+        }
         wrHideCommentPopover();
       }
     });
@@ -2796,25 +2884,71 @@ function wrAddComment() {
   }
 
   // Check for cross-element selection that cannot be wrapped (Req 1.7)
-  // surroundContents requires the range to select only inline content within a single parent
-  var testSpan = document.createElement('span');
-  try {
-    var testRange = range.cloneRange();
-    testRange.surroundContents(testSpan);
-    // If successful, undo the wrapping — unwrap the test span
-    var parent = testSpan.parentNode;
-    while (testSpan.firstChild) {
-      parent.insertBefore(testSpan.firstChild, testSpan);
+  // Non-DOM-mutating validation: check if the range's common ancestor allows wrapping.
+  // surroundContents requires that the range does not partially select a non-text node.
+  var startContainer = range.startContainer;
+  var endContainer = range.endContainer;
+  var commonAncestor = range.commonAncestorContainer;
+
+  // If start and end are in different block-level elements, wrapping will fail
+  if (startContainer !== endContainer) {
+    // Check if the common ancestor is a text node (impossible for cross-element)
+    // or if the range partially selects element children
+    var startBlock = _wrGetBlockParent(startContainer, page);
+    var endBlock = _wrGetBlockParent(endContainer, page);
+    if (startBlock !== endBlock) {
+      console.warn('[Comments] Validation failed: selection crosses block boundaries.');
+      alert('Cannot add comment: the selection spans multiple paragraphs or elements. Please select text within a single block.');
+      return;
     }
-    parent.removeChild(testSpan);
-  } catch (e) {
-    // Selection crosses element boundaries — show notification and abort
-    alert('Cannot add comment: the selection spans multiple paragraphs or elements. Please select text within a single block.');
-    return;
+
+    // Additional check: if commonAncestor is an element and range partially selects children
+    if (commonAncestor.nodeType === Node.ELEMENT_NODE) {
+      var startIdx = _wrNodeIndex(range.startContainer, commonAncestor);
+      var endIdx = _wrNodeIndex(range.endContainer, commonAncestor);
+      // Check that no element nodes are partially selected between start and end
+      for (var ci = startIdx; ci <= endIdx; ci++) {
+        var child = commonAncestor.childNodes[ci];
+        if (child && child.nodeType === Node.ELEMENT_NODE) {
+          // If an element child is partially (not fully) within the range, surroundContents will fail
+          if (ci === startIdx && range.startOffset > 0 && range.startContainer === child) {
+            console.warn('[Comments] Validation failed: partial element selection detected.');
+            alert('Cannot add comment: the selection spans multiple paragraphs or elements. Please select text within a single block.');
+            return;
+          }
+        }
+      }
+    }
   }
 
   // Show the inline comment popover (Req 1.1, 7.1)
   wrShowCommentPopover(range);
+}
+
+/* ── Helper: find the nearest block-level parent of a node within a boundary ── */
+function _wrGetBlockParent(node, boundary) {
+  var blockTags = /^(P|H[1-6]|LI|DIV|BLOCKQUOTE|PRE|TABLE|TR|TD|TH|UL|OL|SECTION|ARTICLE)$/i;
+  var current = node;
+  while (current && current !== boundary) {
+    if (current.nodeType === Node.ELEMENT_NODE && blockTags.test(current.tagName)) {
+      return current;
+    }
+    current = current.parentNode;
+  }
+  return boundary;
+}
+
+/* ── Helper: get the index of a node relative to an ancestor ── */
+function _wrNodeIndex(node, ancestor) {
+  var current = node;
+  while (current.parentNode && current.parentNode !== ancestor) {
+    current = current.parentNode;
+  }
+  var children = ancestor.childNodes;
+  for (var i = 0; i < children.length; i++) {
+    if (children[i] === current) return i;
+  }
+  return 0;
 }
 
 /* ── Render comments list ── */
@@ -2823,7 +2957,10 @@ function wrRenderComments() {
   var countEl = document.getElementById('wr-comments-count');
   var emptyEl = document.getElementById('wr-comments-empty');
   var panelEl = document.getElementById('wr-comments-panel');
-  if (!listEl) return;
+  if (!listEl) {
+    console.warn('[Comments] Render failed: #wr-comments-list not found.');
+    return;
+  }
 
   countEl.textContent = _wrComments.length;
 
@@ -2835,13 +2972,24 @@ function wrRenderComments() {
   }
 
   if (_wrComments.length === 0) {
+    // Recreate the empty message element if it was destroyed by a previous innerHTML assignment
+    if (!emptyEl) {
+      emptyEl = document.createElement('div');
+      emptyEl.className = 'wr-comments-empty';
+      emptyEl.id = 'wr-comments-empty';
+      emptyEl.textContent = 'No comments yet. Select text and click "Add Comment" to start.';
+    }
     listEl.innerHTML = '';
     listEl.appendChild(emptyEl);
     emptyEl.style.display = 'block';
     return;
   }
 
-  emptyEl.style.display = 'none';
+  // Hide the empty element if it still exists in the DOM (before innerHTML replaces children)
+  if (emptyEl) {
+    emptyEl.style.display = 'none';
+  }
+
   var html = '';
   for (var i = 0; i < _wrComments.length; i++) {
     var c = _wrComments[i];
@@ -2868,8 +3016,8 @@ function wrRenderComments() {
       '</div>';
     }
     html += '</div>' +
-      '<div class="wr-reply-input-area" id="reply-input-' + c.id + '" style="display:none;">' +
-        '<textarea class="wr-reply-input" maxlength="500" placeholder="Reply\u2026"></textarea>' +
+      '<div class="wr-reply-input-area" id="reply-input-' + c.id + '" style="display:none;" onclick="event.stopPropagation()">' +
+        '<textarea class="wr-reply-input" maxlength="500" placeholder="Reply\u2026" onclick="event.stopPropagation()" onmousedown="event.stopPropagation()"></textarea>' +
         '<div class="wr-reply-input-actions">' +
           '<button class="btn-sm btn-green wr-reply-submit" onclick="wrSubmitReply(\'' + c.id + '\');event.stopPropagation();">Reply</button>' +
           '<button class="btn-sm btn-grey wr-reply-cancel" onclick="wrHideReplyInput(\'' + c.id + '\');event.stopPropagation();">Cancel</button>' +
@@ -2926,6 +3074,9 @@ function wrDeleteComment(id) {
     }
     parent.removeChild(el);
     parent.normalize();
+    console.log('[Comments] Removed highlight for:', id);
+  } else {
+    console.warn('[Comments] No highlight element found for:', id, '(may be orphaned).');
   }
 
   // Remove from array
@@ -2960,7 +3111,7 @@ function wrAddReply(commentId, replyText) {
   comment.replies.push({
     id: replyId,
     text: replyText.trim(),
-    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    time: _wrTimestamp()
   });
 
   wrRenderComments();
@@ -2990,7 +3141,10 @@ function wrShowReplyInput(commentId) {
   if (area) {
     area.style.display = 'block';
     var textarea = area.querySelector('.wr-reply-input');
-    if (textarea) textarea.focus();
+    if (textarea) {
+      // Deferred focus to prevent event-cycle focus theft
+      setTimeout(function() { textarea.focus(); }, 0);
+    }
   }
 }
 
@@ -3272,6 +3426,7 @@ function wrLoadComments() {
   try {
     data = JSON.parse(raw);
   } catch (e) {
+    console.warn('[Comments] Load failed: invalid JSON in localStorage.');
     return; // Invalid JSON, skip restoration
   }
 
@@ -3283,8 +3438,23 @@ function wrLoadComments() {
     _wrCommentId = data.commentIdCounter;
   }
 
+  var page = document.getElementById('wr-page');
+  var editorEmpty = !page || !page.textContent || page.textContent.trim().length === 0;
+
+  // If editor is empty, discard all saved comments (they are all orphaned)
+  if (editorEmpty) {
+    console.log('[Comments] Editor is empty on load — discarding saved comments.');
+    try {
+      localStorage.removeItem('wr-comments-data');
+    } catch (e) { /* ignore */ }
+    _wrCommentId = 0;
+    return;
+  }
+
   // Restore each comment
   var comments = data.comments || [];
+  var restoredCount = 0;
+  var orphanedCount = 0;
   for (var i = 0; i < comments.length; i++) {
     var comment = comments[i];
 
@@ -3297,10 +3467,15 @@ function wrLoadComments() {
     // If restoration fails, mark as orphaned
     if (!restored) {
       comment.orphaned = true;
+      orphanedCount++;
+    } else {
+      restoredCount++;
     }
 
     _wrComments.push(comment);
   }
+
+  console.log('[Comments] Loaded:', restoredCount, 'restored,', orphanedCount, 'orphaned.');
 
   // Render all comments (including orphaned ones)
   wrRenderComments();

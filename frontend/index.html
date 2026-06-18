@@ -420,7 +420,7 @@
   <!-- ── Page canvas + Comments panel ── -->
   <div class="wr-editor-layout">
     <div class="wr-editor-main">
-      <div id="wr-canvas" style="background:#e8e8e8;padding:28px 0;min-height:600px;overflow-y:auto;" onclick="document.getElementById('wr-page').focus()">
+      <div id="wr-canvas" style="background:#e8e8e8;padding:28px 0;min-height:600px;overflow-y:auto;" onclick="if(!event.target.closest('#wr-comment-popover'))document.getElementById('wr-page').focus()">
         <div id="wr-page"
           contenteditable="true"
           spellcheck="true"
