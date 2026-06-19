@@ -15,9 +15,11 @@ from utils import (
     xml_escape,
     tokenize,
     jaccard_similarity,
+    bold_ui_elements,
+)
+from dita_converter import (
     generate_concept_xml,
     generate_task_xml,
-    bold_ui_elements,
 )
 
 

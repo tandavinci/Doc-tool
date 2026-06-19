@@ -8,7 +8,7 @@
 <body>
 
 
-<h1>📄 Documentation Tool</h1>
+<h1>📄 Doc Tool</h1>
 
 <!-- Global tooltip -->
 <div id="ca-tooltip"></div>
@@ -52,14 +52,68 @@
      ═══════════════════════════════════════════════ -->
 <div id="converter" class="section" style="display:none">
   <h2>DOC to DITA Converter</h2>
-  <textarea id="docInput" placeholder="Paste document content"></textarea>
-  <br>
-  <button onclick="convertConcept()">Convert to Concept</button>
-  <button onclick="convertTask()">Convert to Task</button>
-  <button class="btn-grey" onclick="copyDitaXml()">📋 Copy XML</button>
-  <h3>Output</h3>
-  <textarea id="xmlOutput"></textarea>
+  <p style="font-size:13px;color:#666;margin-top:0;margin-bottom:18px;">
+    Convert document content into DITA XML (Concept or Task). Paste formatted content from Word/Docs or upload a .docx file.
+  </p>
+
+  <!-- Input Area -->
+  <div style="margin-bottom:14px;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">
+      <label style="font-weight:600;font-size:13px;color:#1a2332;">Input Content</label>
+      <span style="font-size:11px;color:#888;">(Paste from Word/Docs to preserve formatting)</span>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+        <button class="btn-sm btn-grey" onclick="document.getElementById('dita-file-input').click()">📂 Upload .docx</button>
+        <input type="file" id="dita-file-input" accept=".docx,.doc,.txt,.html,.htm" style="display:none;">
+        <span id="dita-file-name" style="font-size:11px;color:#007cba;font-weight:600;display:none;"></span>
+      </div>
+    </div>
+    <div id="docInput" contenteditable="true" spellcheck="true"
+         style="width:100%;min-height:200px;max-height:400px;overflow-y:auto;font-family:'Segoe UI',sans-serif;font-size:13px;padding:12px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box;background:#fff;line-height:1.6;outline:none;"
+         data-placeholder="Paste formatted content here (Ctrl+V from Word, Google Docs, etc.)..."></div>
+  </div>
+
+  <!-- Action Buttons -->
+  <div style="display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap;">
+    <button id="dita-concept-btn" onclick="convertConcept()">Convert to Concept</button>
+    <button id="dita-task-btn" onclick="convertTask()">Convert to Task</button>
+    <button class="btn-grey" onclick="clearDitaConverter()">Clear</button>
+    <div id="dita-loading" style="display:none;margin-left:10px;">
+      <span style="display:inline-block;width:16px;height:16px;border:2px solid #ddd;border-top-color:#007cba;border-radius:50%;animation:md-spin 0.8s linear infinite;vertical-align:middle;"></span>
+      <span style="font-size:12px;color:#666;margin-left:6px;">Converting...</span>
+    </div>
+  </div>
+
+  <!-- Output Area -->
+  <div id="dita-output-section" style="display:none;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+      <label style="font-weight:600;font-size:13px;color:#1a2332;">Output XML</label>
+      <span id="dita-format-badge" style="font-size:11px;padding:2px 8px;border-radius:10px;background:#e8f4fd;color:#007cba;font-weight:600;"></span>
+      <div style="margin-left:auto;display:flex;gap:8px;">
+        <button class="btn-sm" style="background:#007cba;color:#fff;" onclick="copyDitaXml()">📋 Copy</button>
+        <button class="btn-sm btn-grey" onclick="downloadDitaXml()">⬇ Download</button>
+      </div>
+    </div>
+    <textarea id="xmlOutput" readonly style="width:100%;min-height:250px;max-height:500px;resize:vertical;font-family:'Courier New',monospace;font-size:12px;padding:12px;border:1px solid #dde3ea;border-radius:6px;background:#f6f8fa;box-sizing:border-box;"></textarea>
+  </div>
+
+  <!-- Alert -->
+  <div id="dita-alert" style="display:none;padding:12px;border-radius:6px;font-size:13px;margin-top:14px;"></div>
 </div>
+
+<style>
+  #docInput:empty:before {
+    content: attr(data-placeholder);
+    color: #999;
+    pointer-events: none;
+  }
+  #docInput:focus { border-color: #007cba; box-shadow: 0 0 0 2px rgba(0,124,186,0.1); }
+  #docInput h1, #docInput h2, #docInput h3, #docInput h4 { margin: 0.5em 0 0.3em; }
+  #docInput p { margin: 0.3em 0; }
+  #docInput ul, #docInput ol { margin: 0.3em 0; padding-left: 24px; }
+  #docInput table { border-collapse: collapse; width: 100%; margin: 0.5em 0; }
+  #docInput th, #docInput td { border: 1px solid #ddd; padding: 4px 8px; text-align: left; }
+  #docInput th { background: #f5f5f5; }
+</style>
 
 <!-- ═══════════════════════════════════════════════
      TAB 2: IMPACT ANALYZER
