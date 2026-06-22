@@ -89,68 +89,199 @@ function deriveFilename(extension) {
 
 /* ============================================================
    DITA CONVERTER
-   [BACKEND: Logic] — XML generation logic migrates to Python (utils.py)
-   Functions to extract: convertConcept, convertTask, xEsc
+   [BACKEND: Logic] — XML generation handled by Python backend
+   Frontend handles: UI state, IPC calls, result display
+   Supports rich text paste (from Word/Docs) and .docx upload
    ============================================================ */
+var _ditaLastFormat = '';
+
+/* ── File upload handler for .docx ── */
+(function() {
+  function setupDitaFileInput() {
+    var fileInput = document.getElementById('dita-file-input');
+    if (!fileInput) return;
+    fileInput.addEventListener('change', function(e) {
+      var file = e.target.files[0];
+      if (!file) return;
+      var nameEl = document.getElementById('dita-file-name');
+      nameEl.textContent = file.name;
+      nameEl.style.display = 'inline';
+
+      if (file.name.endsWith('.docx') || file.name.endsWith('.doc')) {
+        // Use mammoth.js to convert .docx to HTML
+        var reader = new FileReader();
+        reader.onload = function(ev) {
+          mammoth.convertToHtml({ arrayBuffer: ev.target.result })
+            .then(function(result) {
+              document.getElementById('docInput').innerHTML = result.value;
+            })
+            .catch(function() {
+              // Fallback: extract raw text
+              mammoth.extractRawText({ arrayBuffer: ev.target.result })
+                .then(function(res) {
+                  document.getElementById('docInput').innerText = res.value;
+                });
+            });
+        };
+        reader.readAsArrayBuffer(file);
+      } else if (file.name.endsWith('.html') || file.name.endsWith('.htm')) {
+        var reader = new FileReader();
+        reader.onload = function(ev) {
+          document.getElementById('docInput').innerHTML = ev.target.result;
+        };
+        reader.readAsText(file);
+      } else {
+        // Plain text
+        var reader = new FileReader();
+        reader.onload = function(ev) {
+          document.getElementById('docInput').innerText = ev.target.result;
+        };
+        reader.readAsText(file);
+      }
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupDitaFileInput);
+  } else {
+    setupDitaFileInput();
+  }
+})();
+
 function convertConcept() {
-  var text = document.getElementById('docInput').value;
-  // Use backend via Electron IPC if available, otherwise use local JS
-  if (window.api && window.api.convertDita) {
-    window.api.convertDita(text, 'concept').then(function(response) {
-      if (response.success) {
-        document.getElementById('xmlOutput').value = response.data.xml;
-      } else {
-        _convertConceptLocal(text);
-      }
-    }).catch(function() {
-      _convertConceptLocal(text);
-    });
-  } else {
-    _convertConceptLocal(text);
-  }
+  _ditaConvert('concept');
 }
-function _convertConceptLocal(text) {
-  const lines = text.split('\n');
-  let xml = '<conbody>\n';
-  lines.forEach(l => { l = l.trim(); if (l) xml += '  <p>' + xEsc(l) + '</p>\n'; });
-  document.getElementById('xmlOutput').value = xml + '</conbody>';
-}
+
 function convertTask() {
-  var text = document.getElementById('docInput').value;
-  // Use backend via Electron IPC if available, otherwise use local JS
+  _ditaConvert('task');
+}
+
+function _ditaGetInputContent() {
+  /**
+   * Extract content from the contenteditable div.
+   * Returns both the rich HTML and a plain-text fallback.
+   * The backend will receive the HTML for better structure detection.
+   */
+  var el = document.getElementById('docInput');
+  var html = el.innerHTML || '';
+  var text = el.innerText || el.textContent || '';
+  return { html: html.trim(), text: text.trim() };
+}
+
+function _ditaConvert(format) {
+  var content = _ditaGetInputContent();
+  if (!content.text) {
+    _ditaShowAlert('Please paste some content to convert.', 'error');
+    return;
+  }
+
+  // Show loading state
+  document.getElementById('dita-loading').style.display = 'inline-flex';
+  document.getElementById('dita-concept-btn').disabled = true;
+  document.getElementById('dita-task-btn').disabled = true;
+  _ditaHideAlert();
+
+  // Send HTML content to backend for richer conversion;
+  // fall back to plain text if HTML is trivial
+  var payload = content.html.indexOf('<') !== -1 ? content.html : content.text;
+
   if (window.api && window.api.convertDita) {
-    window.api.convertDita(text, 'task').then(function(response) {
-      if (response.success) {
-        document.getElementById('xmlOutput').value = response.data.xml;
+    window.api.convertDita(payload, format).then(function(response) {
+      _ditaHideLoading();
+      if (response && response.success) {
+        _ditaShowOutput(response.data.xml, format);
       } else {
-        _convertTaskLocal(text);
+        var errMsg = (response && response.error) ? response.error.message : 'Conversion failed.';
+        _ditaShowAlert(errMsg, 'error');
+        // Fallback to local conversion with plain text
+        _ditaShowOutput(_convertLocal(content.text, format), format);
       }
-    }).catch(function() {
-      _convertTaskLocal(text);
+    }).catch(function(err) {
+      _ditaHideLoading();
+      _ditaShowOutput(_convertLocal(content.text, format), format);
     });
   } else {
-    _convertTaskLocal(text);
+    _ditaHideLoading();
+    _ditaShowOutput(_convertLocal(content.text, format), format);
   }
 }
-function _convertTaskLocal(text) {
-  const lines = text.split('\n');
-  let xml = '<taskbody>\n<steps>\n';
-  lines.forEach(l => {
-    if (l.match(/^\d+\./)) {
-      xml += '\n<step>\n<cmd>' + xEsc(l.replace(/^\d+\./, '').trim()) + '</cmd>\n</step>\n';
-    }
-  });
-  document.getElementById('xmlOutput').value = xml + '</steps>\n</taskbody>';
+
+function _convertLocal(text, format) {
+  // Basic local fallback when backend is not available
+  var lines = text.split('\n');
+  if (format === 'task') {
+    var xml = '<taskbody>\n<steps>\n';
+    lines.forEach(function(l) {
+      if (l.match(/^\d+\./)) {
+        xml += '<step>\n<cmd>' + xEsc(l.replace(/^\d+\./, '').trim()) + '</cmd>\n</step>\n';
+      }
+    });
+    return xml + '</steps>\n</taskbody>';
+  } else {
+    var xml = '<conbody>\n';
+    lines.forEach(function(l) { l = l.trim(); if (l) xml += '<p>' + xEsc(l) + '</p>\n'; });
+    return xml + '</conbody>';
+  }
 }
+
+function _ditaShowOutput(xml, format) {
+  _ditaLastFormat = format;
+  document.getElementById('xmlOutput').value = xml;
+  document.getElementById('dita-output-section').style.display = 'block';
+  document.getElementById('dita-format-badge').textContent = format === 'task' ? 'Task' : 'Concept';
+}
+
+function _ditaHideLoading() {
+  document.getElementById('dita-loading').style.display = 'none';
+  document.getElementById('dita-concept-btn').disabled = false;
+  document.getElementById('dita-task-btn').disabled = false;
+}
+
+function _ditaShowAlert(message, type) {
+  var el = document.getElementById('dita-alert');
+  el.textContent = message;
+  el.style.display = 'block';
+  if (type === 'success') {
+    el.style.background = '#d4edda'; el.style.border = '1px solid #c3e6cb'; el.style.color = '#155724';
+    setTimeout(_ditaHideAlert, 3000);
+  } else {
+    el.style.background = '#f8d7da'; el.style.border = '1px solid #f5c6cb'; el.style.color = '#721c24';
+  }
+}
+
+function _ditaHideAlert() {
+  document.getElementById('dita-alert').style.display = 'none';
+}
+
+function clearDitaConverter() {
+  document.getElementById('docInput').innerHTML = '';
+  document.getElementById('xmlOutput').value = '';
+  document.getElementById('dita-output-section').style.display = 'none';
+  var nameEl = document.getElementById('dita-file-name');
+  if (nameEl) { nameEl.style.display = 'none'; nameEl.textContent = ''; }
+  var fileInput = document.getElementById('dita-file-input');
+  if (fileInput) fileInput.value = '';
+  _ditaHideAlert();
+  _ditaLastFormat = '';
+}
+
 function xEsc(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
+
 function copyDitaXml() {
   var xml = document.getElementById('xmlOutput').value;
-  if (!xml) { alert('No XML output to copy. Run a conversion first.'); return; }
+  if (!xml) { _ditaShowAlert('No XML output to copy.', 'error'); return; }
   navigator.clipboard.writeText(xml).then(function() {
-    alert('XML copied to clipboard.');
-  }).catch(function() { alert('Copy failed.'); });
+    _ditaShowAlert('XML copied to clipboard.', 'success');
+  }).catch(function() { _ditaShowAlert('Copy failed.', 'error'); });
+}
+
+function downloadDitaXml() {
+  var xml = document.getElementById('xmlOutput').value;
+  if (!xml) { _ditaShowAlert('No XML output to download.', 'error'); return; }
+  var filename = 'output_' + (_ditaLastFormat || 'dita') + '.xml';
+  var blob = new Blob([xml], { type: 'application/xml;charset=utf-8' });
+  saveAs(blob, filename);
 }
 
 /* ============================================================

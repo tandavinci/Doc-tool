@@ -46,37 +46,20 @@ def jaccard_similarity(tokens_a, tokens_b):
 
 
 # =============================================================================
-# DITA XML GENERATION
+# DITA XML GENERATION (DEPRECATED - now in dita_converter.py)
+# These stubs remain for backward compatibility but delegate to the new module.
 # =============================================================================
 
 def generate_concept_xml(text):
-    """
-    Generate DITA conbody XML from text lines.
-    Mirrors JS convertConcept() logic.
-    """
-    lines = text.split("\n")
-    xml = "<conbody>\n"
-    for line in lines:
-        line = line.strip()
-        if line:
-            xml += "  <p>" + xml_escape(line) + "</p>\n"
-    xml += "</conbody>"
-    return xml
+    """Deprecated: Use dita_converter.generate_concept_xml instead."""
+    from dita_converter import generate_concept_xml as _new
+    return _new(text)
 
 
 def generate_task_xml(text):
-    """
-    Generate DITA taskbody XML from numbered lines.
-    Mirrors JS convertTask() logic.
-    """
-    lines = text.split("\n")
-    xml = "<taskbody>\n<steps>\n"
-    for line in lines:
-        if re.match(r"^\d+\.", line):
-            cmd = re.sub(r"^\d+\.", "", line).strip()
-            xml += "\n<step>\n<cmd>" + xml_escape(cmd) + "</cmd>\n</step>\n"
-    xml += "</steps>\n</taskbody>"
-    return xml
+    """Deprecated: Use dita_converter.generate_task_xml instead."""
+    from dita_converter import generate_task_xml as _new
+    return _new(text)
 
 
 # =============================================================================
