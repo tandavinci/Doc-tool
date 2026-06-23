@@ -52,13 +52,21 @@ def _preprocess_html_input(html_text):
     # Remove style, script, and head tags entirely
     text = re.sub(r'<(style|script|head)[^>]*>.*?</\1>', '', text, flags=re.DOTALL | re.IGNORECASE)
 
-    # Convert headings to uppercase lines
+    # Convert headings to uppercase lines (will be detected as sections)
     for level in range(1, 7):
         text = re.sub(
             r'<h' + str(level) + r'[^>]*>(.*?)</h' + str(level) + r'>',
             lambda m: '\n' + _strip_tags(m.group(1)).strip().upper() + '\n',
             text, flags=re.DOTALL | re.IGNORECASE
         )
+
+    # Preserve bold/strong text with markers so the converter can detect them
+    # Bold words are potential candidates for <uicontrol> or <wintitle>
+    text = re.sub(
+        r'<(strong|b)\b[^>]*>(.*?)</\1>',
+        lambda m: '{{BOLD:' + _strip_tags(m.group(2)).strip() + '}}',
+        text, flags=re.DOTALL | re.IGNORECASE
+    )
 
     # Convert ordered lists
     def _convert_ol(m):
@@ -138,7 +146,7 @@ def xml_escape(s):
 UICONTROL_TRIGGERS = [
     "field", "fields", "tab", "tabs", "button", "buttons",
     "menu", "menus", "widget", "widgets", "check box",
-    "check boxes", "option", "options",
+    "check boxes", "option", "options", "module", "modules",
 ]
 
 # Context words that trigger <wintitle> on the preceding word(s)
@@ -239,21 +247,27 @@ def _apply_wintitle(text):
 def _apply_userinput(text):
     """Apply <userinput> tags to values following 'set to' or 'as'.
 
+    Only tags words that look like actual values: capitalized words,
+    numbers, or known setting values. Does NOT tag articles (a, an, the)
+    or common lowercase words.
+
     Example: 'set to True' -> 'set to <userinput>True</userinput>'
+    Example: 'defined as Manual' -> 'defined as <userinput>Manual</userinput>'
     """
     result = text
-    for trigger in USERINPUT_TRIGGERS:
-        pattern = re.compile(
-            r'(' + trigger + r')\s+([A-Za-z0-9_\-]+)',
-            re.IGNORECASE
-        )
-
-        def _userinput_replacer(m):
-            prefix = m.group(1)
-            value = m.group(2)
-            return prefix + " <userinput>" + value + "</userinput>"
-
-        result = pattern.sub(_userinput_replacer, result)
+    # "set to <Value>" — value must be capitalized or numeric
+    result = re.sub(
+        r'(set\s+to)\s+([A-Z][A-Za-z0-9_\-]*)',
+        r'\1 <userinput>\2</userinput>',
+        result,
+        flags=re.IGNORECASE
+    )
+    # "defined as <Value>" / "configured as <Value>" — value must be capitalized
+    result = re.sub(
+        r'((?:defined|configured|specified|marked|flagged)\s+as)\s+([A-Z][A-Za-z0-9_\-]*)',
+        r'\1 <userinput>\2</userinput>',
+        result
+    )
     return result
 
 
@@ -264,13 +278,63 @@ def _apply_inline_tags(text, is_task=False):
     For task files, menucascade is applied FIRST (before other tags)
     since it operates on the ">" separator.
     For concept files, menucascade is never used.
+    Bold markers from HTML paste are resolved into appropriate DITA tags.
     """
     escaped = xml_escape(text)
     if is_task:
         escaped = _apply_menucascade(escaped)
+    # Process bold markers from HTML paste into DITA tags
+    escaped = _apply_bold_markers(escaped, is_task=is_task)
     result = _apply_uicontrol(escaped)
     result = _apply_wintitle(result)
     result = _apply_userinput(result)
+    return result
+
+
+def _apply_bold_markers(text, is_task=False):
+    """Convert {{BOLD:word}} markers into appropriate DITA inline tags.
+
+    Logic:
+    - If the bold word appears before a UI trigger word → <uicontrol>
+    - If the bold word appears before a window trigger word → <wintitle>
+    - If the bold word is a note prefix (Note, Warning, etc.) → leave as text (note handled at block level)
+    - Otherwise → <uicontrol> (bold in technical docs usually indicates UI elements)
+    """
+    # First pass: resolve bold markers that are immediately before a trigger word
+    # The trigger words will be handled by _apply_uicontrol/_apply_wintitle after this
+    def _bold_replacer(m):
+        word = m.group(1)
+        # Skip note prefixes — they're handled at block level
+        if re.match(r'^(Note|Warning|Caution|Tip|Important|Danger)$', word, re.IGNORECASE):
+            return word
+        # Return the word as-is — the uicontrol/wintitle patterns will pick it up
+        # if it's followed by a trigger word. If not, tag it as <uicontrol>
+        # since bold in technical docs typically indicates a UI element name.
+        return word
+
+    # Check each bold marker: if followed by a trigger word, just unwrap it
+    # (the downstream _apply_uicontrol will handle it). Otherwise, tag it.
+    result = text
+
+    def _contextual_bold(m):
+        word = m.group(1)
+
+        # Skip note-type prefixes
+        if re.match(r'^(Note|Warning|Caution|Tip|Important|Danger)$', word, re.IGNORECASE):
+            return word
+
+        # Check if followed by a UI trigger word
+        pos = m.end()
+        remaining = text[pos:pos + 30] if pos < len(text) else ''
+        for trigger in UICONTROL_TRIGGERS + WINTITLE_TRIGGERS:
+            if remaining.lstrip().lower().startswith(trigger):
+                # Trigger word follows — just unwrap, let _apply_uicontrol handle it
+                return word
+
+        # No trigger word follows — this bold word is a standalone UI element
+        return '<uicontrol>' + word + '</uicontrol>'
+
+    result = re.sub(r'\{\{BOLD:(.*?)\}\}', _contextual_bold, result)
     return result
 
 
@@ -364,18 +428,22 @@ def _strip_unordered_prefix(line):
 
 
 def _is_heading_line(line):
-    """Check if a line appears to be a heading (all caps or short bold-like)."""
+    """Check if a line appears to be a heading.
+
+    Only treats lines as headings if they came from HTML heading tags
+    (preprocessed to ALL CAPS by _preprocess_html_input).
+    Plain text that happens to be short or title-case is NOT treated as a heading
+    to avoid creating unnecessary sections.
+    """
     stripped = line.strip()
     if not stripped:
         return False
-    # Lines that are short and title-case or all-caps are likely headings
-    if len(stripped) < 80 and stripped == stripped.upper() and len(stripped.split()) <= 8:
-        return True
-    # Title case with no punctuation at end
-    if (len(stripped) < 80 and stripped[0].isupper()
-            and not stripped.endswith(('.', ',', ';', ':'))
-            and len(stripped.split()) <= 8
-            and all(w[0].isupper() for w in stripped.split() if len(w) > 3)):
+    # Only detect as heading if ALL CAPS (from HTML preprocessing of <h1>-<h6>)
+    if (stripped == stripped.upper()
+            and len(stripped) > 2
+            and stripped != stripped.lower()
+            and len(stripped.split()) <= 10
+            and not stripped.endswith(('.', ',', ';', ':'))):
         return True
     return False
 
@@ -508,12 +576,6 @@ def generate_concept_xml(text):
             xml_parts.append('<section>\n<title>' + xml_escape(line.strip()) + '</title>\n')
             in_section = True
             idx += 1
-            continue
-
-        # Check for definition list pattern (short label followed by description)
-        if _is_dl_candidate(lines, idx):
-            dl_xml, idx = _parse_definition_list(lines, idx, is_task=False)
-            xml_parts.append(dl_xml)
             continue
 
         # Default: paragraph
