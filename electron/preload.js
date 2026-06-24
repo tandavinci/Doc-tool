@@ -67,4 +67,22 @@ contextBridge.exposeInMainWorld('api', {
   onBackendError: (callback) => {
     ipcRenderer.on('backend-error', (event, data) => callback(data));
   },
+
+  /**
+   * Listen for close confirmation request from main process.
+   * @param {function} callback - Called when close is requested
+   */
+  onConfirmClose: (callback) => {
+    ipcRenderer.on('confirm-close', () => callback());
+  },
+
+  /**
+   * Confirm that the user wants to close the app.
+   */
+  confirmClose: () => ipcRenderer.send('close-confirmed'),
+
+  /**
+   * Cancel the close action.
+   */
+  cancelClose: () => ipcRenderer.send('close-cancelled'),
 });

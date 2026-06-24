@@ -757,5 +757,35 @@
 <script src="lib/jszip.min.js"></script>
 <script src="lib/xlsx.min.js"></script>
 <script src="app.js"></script>
+
+<!-- Close Confirmation Popup -->
+<div id="close-confirm-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:16px;padding:28px 32px;text-align:center;box-shadow:0 8px 40px rgba(0,0,0,0.3);max-width:380px;width:90%;animation:close-pop-in 0.2s ease-out;">
+    <img src="assets/close-cat.gif" alt="Are you sure?" style="width:200px;height:auto;border-radius:12px;margin-bottom:16px;">
+    <h3 style="margin:0 0 8px;font-size:18px;color:#1a2332;">Do you really want to close this application?</h3>
+    <p style="margin:0 0 20px;font-size:13px;color:#666;">Any unsaved changes will be lost.</p>
+    <div style="display:flex;gap:12px;justify-content:center;">
+      <button onclick="window.api.cancelClose();document.getElementById('close-confirm-overlay').style.display='none';"
+              style="padding:10px 24px;border:1px solid #ccc;border-radius:8px;background:#fff;font-size:14px;cursor:pointer;font-weight:500;">
+        No, Stay
+      </button>
+      <button onclick="window.api.confirmClose();"
+              style="padding:10px 24px;border:none;border-radius:8px;background:#dc3545;color:#fff;font-size:14px;cursor:pointer;font-weight:600;">
+        Yes, Close
+      </button>
+    </div>
+  </div>
+</div>
+<style>
+  @keyframes close-pop-in { from { transform:scale(0.8);opacity:0; } to { transform:scale(1);opacity:1; } }
+</style>
+<script>
+  // Listen for close confirmation request
+  if (window.api && window.api.onConfirmClose) {
+    window.api.onConfirmClose(function() {
+      document.getElementById('close-confirm-overlay').style.display = 'flex';
+    });
+  }
+</script>
 </body>
 </html>

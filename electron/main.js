@@ -279,6 +279,26 @@ function createWindow() {
     mainWindow.webContents.openDevTools();
   }
 
+  // Intercept close — ask renderer to show confirmation dialog
+  let forceClose = false;
+  mainWindow.on('close', (e) => {
+    if (!forceClose) {
+      e.preventDefault();
+      mainWindow.webContents.send('confirm-close');
+    }
+  });
+
+  ipcMain.on('close-confirmed', () => {
+    forceClose = true;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.close();
+    }
+  });
+
+  ipcMain.on('close-cancelled', () => {
+    // User cancelled — do nothing
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
