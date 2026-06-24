@@ -4221,22 +4221,13 @@ function qrHighlightLocation(el) {
   // Remove previous highlights
   qrClearHighlights();
 
-  // Find the sentence in the input and wrap it with a highlight span
-  var html = inputEl.innerHTML;
-  var escapedLoc = location.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  var regexSafe = escapedLoc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  var regex = new RegExp('(' + regexSafe + ')', 'i');
+  // Use text-node walking to find and highlight the sentence
+  // This works regardless of how the contenteditable structures its HTML (div, p, br, etc.)
+  var found = _qrFindAndHighlight(inputEl, location);
 
-  if (regex.test(html)) {
-    inputEl.innerHTML = html.replace(regex, '<span class="qr-highlight">$1</span>');
-  } else {
-    // Fallback: match a shorter prefix of the sentence
-    var shortSnippet = escapedLoc.substring(0, Math.min(50, escapedLoc.length));
-    var shortSafe = shortSnippet.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    var shortRegex = new RegExp('([^<]*' + shortSafe + '[^<]*)', 'i');
-    if (shortRegex.test(html)) {
-      inputEl.innerHTML = html.replace(shortRegex, '<span class="qr-highlight">$1</span>');
-    }
+  // If exact match failed, try a shorter prefix
+  if (!found && location.length > 30) {
+    found = _qrFindAndHighlight(inputEl, location.substring(0, 60));
   }
 
   // Scroll the highlight into view
@@ -4250,6 +4241,68 @@ function qrHighlightLocation(el) {
     item.classList.remove('qr-active');
   });
   el.classList.add('qr-active');
+}
+
+function _qrFindAndHighlight(container, searchText) {
+  /**
+   * Walk all text nodes in the container, find the one containing searchText,
+   * and wrap the matching portion in a <span class="qr-highlight">.
+   */
+  var walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null, false);
+  var node;
+  var searchLower = searchText.toLowerCase().trim();
+
+  // First try: find single text node containing the full search text
+  while ((node = walker.nextNode())) {
+    var nodeText = node.textContent;
+    var idx = nodeText.toLowerCase().indexOf(searchLower);
+    if (idx !== -1) {
+      // Found it — split the text node and wrap the match
+      var before = nodeText.substring(0, idx);
+      var match = nodeText.substring(idx, idx + searchText.length);
+      var after = nodeText.substring(idx + searchText.length);
+
+      var span = document.createElement('span');
+      span.className = 'qr-highlight';
+      span.textContent = match;
+
+      var parent = node.parentNode;
+      if (before) parent.insertBefore(document.createTextNode(before), node);
+      parent.insertBefore(span, node);
+      if (after) parent.insertBefore(document.createTextNode(after), node);
+      parent.removeChild(node);
+      return true;
+    }
+  }
+
+  // Second try: search text might span across multiple text nodes (e.g., "sentence1.sentence2")
+  // In this case, find the first significant portion (first sentence)
+  var firstSentence = searchText.split(/[.!?]/)[0];
+  if (firstSentence && firstSentence.length > 10 && firstSentence !== searchText) {
+    walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null, false);
+    var firstLower = firstSentence.toLowerCase().trim();
+    while ((node = walker.nextNode())) {
+      var nodeText = node.textContent;
+      var idx = nodeText.toLowerCase().indexOf(firstLower);
+      if (idx !== -1) {
+        // Highlight from the match to the end of this text node
+        var before = nodeText.substring(0, idx);
+        var match = nodeText.substring(idx);
+
+        var span = document.createElement('span');
+        span.className = 'qr-highlight';
+        span.textContent = match;
+
+        var parent = node.parentNode;
+        if (before) parent.insertBefore(document.createTextNode(before), node);
+        parent.insertBefore(span, node);
+        parent.removeChild(node);
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 function qrClearHighlights() {
