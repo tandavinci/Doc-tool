@@ -4058,6 +4058,16 @@ function qrRunReview() {
 function qrRenderResults(data) {
   document.getElementById('qr-results').style.display = 'block';
 
+  // Render annotated text with inline violation highlights (like Content Analysis)
+  var violations = data.violations || [];
+  var inputEl = document.getElementById('qrInput');
+  var plainText = inputEl.innerText || inputEl.textContent || '';
+  _qrPlainText = plainText; // Store for reference
+
+  // Build annotated HTML with violation spans
+  var annotatedHtml = _qrBuildAnnotated(plainText, violations);
+  inputEl.innerHTML = annotatedHtml;
+
   // Score card
   var score = data.score || {};
   document.getElementById('qr-score').textContent = score.total || 0;
@@ -4110,8 +4120,7 @@ function qrRenderResults(data) {
     var v = violations[i];
     var sevClass = v.severity === 'critical' ? '' : v.severity === 'major' ? ' major' : ' minor';
     var sevLabel = v.severity.charAt(0).toUpperCase() + v.severity.slice(1);
-    var locAttr = v.location ? ' data-location="' + hEsc(v.location) + '"' : '';
-    vHtml += '<div class="qr-violation-item' + sevClass + '" onclick="qrHighlightLocation(this)"' + locAttr + ' style="cursor:pointer;">' +
+    vHtml += '<div class="qr-violation-item' + sevClass + '" data-vidx="' + i + '" onclick="qrHighlightLocation(this)" style="cursor:pointer;">' +
       '<div class="qr-v-rule">[' + sevLabel + '] ' + hEsc(v.rule || '') + '</div>' +
       '<div class="qr-v-msg">' + hEsc(v.message || '') + '</div>' +
       (v.location ? '<div class="qr-v-location">"' + hEsc(v.location.length > 120 ? v.location.substring(0,120) + '...' : v.location) + '"</div>' : '') +
@@ -4212,107 +4221,104 @@ function qrAcceptAll() {
 }
 
 /* ── Highlight location in input when violation/suggestion is clicked ── */
+var _qrPlainText = '';
+
+function _qrBuildAnnotated(text, violations) {
+  /**
+   * Build HTML with colored highlight spans for each violation, just like Content Analysis.
+   * Each span has data-vidx for click-to-scroll from the violations list.
+   */
+  // Sort violations by start position for rendering
+  var sorted = violations.map(function(v, i) { return { v: v, idx: i }; })
+    .filter(function(item) { return item.v.start > 0 || item.v.end > 0; })
+    .sort(function(a, b) { return a.v.start - b.v.start; });
+
+  var html = '';
+  var pos = 0;
+
+  // Color map by severity
+  var colorMap = { critical: '#f8d7da', major: '#fff3cd', minor: '#d4edda' };
+
+  for (var i = 0; i < sorted.length; i++) {
+    var item = sorted[i];
+    var v = item.v;
+    var start = v.start || 0;
+    var end = v.end || 0;
+
+    // Skip if position is invalid or overlaps with previous
+    if (start < pos || end <= start || end > text.length) continue;
+
+    // Text before this violation
+    html += hEsc(text.slice(pos, start));
+
+    // The violation span
+    var bgColor = colorMap[v.severity] || '#e2e3e5';
+    html += '<span class="qr-v-span" data-vidx="' + item.idx + '"' +
+      ' style="background:' + bgColor + ';border-bottom:2px solid ' +
+      (v.severity === 'critical' ? '#dc3545' : v.severity === 'major' ? '#fd7e14' : '#28a745') +
+      ';padding:1px 2px;border-radius:2px;cursor:pointer;"' +
+      ' title="' + aEsc('[' + (v.severity || '') + '] ' + (v.message || '')) + '"' +
+      ' onclick="qrSpanClicked(' + item.idx + ')">' +
+      hEsc(text.slice(start, end)) + '</span>';
+    pos = end;
+  }
+
+  // Remaining text
+  html += hEsc(text.slice(pos));
+
+  // Replace newlines with <br> for display
+  html = html.replace(/\n/g, '<br>');
+  return html;
+}
+
+function qrSpanClicked(vidx) {
+  /** When an inline highlight is clicked, scroll the violations list to that violation. */
+  var card = document.querySelector('.qr-violation-item[data-vidx="' + vidx + '"]');
+  if (card) {
+    // Remove previous active states
+    document.querySelectorAll('.qr-violation-item').forEach(function(el) { el.classList.remove('qr-active'); });
+    card.classList.add('qr-active');
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
 function qrHighlightLocation(el) {
+  /** When a violation card or suggestion is clicked, scroll to and pulse the corresponding inline highlight. */
+  var vidx = el.getAttribute('data-vidx');
+  if (vidx !== null) {
+    var span = document.querySelector('#qrInput .qr-v-span[data-vidx="' + vidx + '"]');
+    if (span) {
+      span.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      span.style.boxShadow = '0 0 0 3px rgba(0,124,186,0.5)';
+      setTimeout(function() { span.style.boxShadow = ''; }, 2000);
+    }
+  }
+
+  // Also handle suggestions that reference a location
   var location = el.getAttribute('data-location');
-  if (!location) return;
-
-  var inputEl = document.getElementById('qrInput');
-
-  // Remove previous highlights
-  qrClearHighlights();
-
-  // Use text-node walking to find and highlight the sentence
-  // This works regardless of how the contenteditable structures its HTML (div, p, br, etc.)
-  var found = _qrFindAndHighlight(inputEl, location);
-
-  // If exact match failed, try a shorter prefix
-  if (!found && location.length > 30) {
-    found = _qrFindAndHighlight(inputEl, location.substring(0, 60));
+  if (location && !vidx) {
+    // Find the text in the input and briefly flash it
+    var inputEl = document.getElementById('qrInput');
+    var spans = inputEl.querySelectorAll('.qr-v-span');
+    for (var i = 0; i < spans.length; i++) {
+      if (spans[i].textContent.toLowerCase().indexOf(location.toLowerCase().substring(0, 30)) !== -1) {
+        spans[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
+        spans[i].style.boxShadow = '0 0 0 3px rgba(0,124,186,0.5)';
+        setTimeout((function(s) { return function() { s.style.boxShadow = ''; }; })(spans[i]), 2000);
+        break;
+      }
+    }
   }
 
-  // Scroll the highlight into view
-  var highlightSpan = inputEl.querySelector('.qr-highlight');
-  if (highlightSpan) {
-    highlightSpan.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
-
-  // Mark the clicked item as active
+  // Mark clicked item as active
   document.querySelectorAll('.qr-violation-item, .qr-suggestion-card').forEach(function(item) {
     item.classList.remove('qr-active');
   });
   el.classList.add('qr-active');
 }
 
-function _qrFindAndHighlight(container, searchText) {
-  /**
-   * Walk all text nodes in the container, find the one containing searchText,
-   * and wrap the matching portion in a <span class="qr-highlight">.
-   */
-  var walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null, false);
-  var node;
-  var searchLower = searchText.toLowerCase().trim();
-
-  // First try: find single text node containing the full search text
-  while ((node = walker.nextNode())) {
-    var nodeText = node.textContent;
-    var idx = nodeText.toLowerCase().indexOf(searchLower);
-    if (idx !== -1) {
-      // Found it — split the text node and wrap the match
-      var before = nodeText.substring(0, idx);
-      var match = nodeText.substring(idx, idx + searchText.length);
-      var after = nodeText.substring(idx + searchText.length);
-
-      var span = document.createElement('span');
-      span.className = 'qr-highlight';
-      span.textContent = match;
-
-      var parent = node.parentNode;
-      if (before) parent.insertBefore(document.createTextNode(before), node);
-      parent.insertBefore(span, node);
-      if (after) parent.insertBefore(document.createTextNode(after), node);
-      parent.removeChild(node);
-      return true;
-    }
-  }
-
-  // Second try: search text might span across multiple text nodes (e.g., "sentence1.sentence2")
-  // In this case, find the first significant portion (first sentence)
-  var firstSentence = searchText.split(/[.!?]/)[0];
-  if (firstSentence && firstSentence.length > 10 && firstSentence !== searchText) {
-    walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null, false);
-    var firstLower = firstSentence.toLowerCase().trim();
-    while ((node = walker.nextNode())) {
-      var nodeText = node.textContent;
-      var idx = nodeText.toLowerCase().indexOf(firstLower);
-      if (idx !== -1) {
-        // Highlight from the match to the end of this text node
-        var before = nodeText.substring(0, idx);
-        var match = nodeText.substring(idx);
-
-        var span = document.createElement('span');
-        span.className = 'qr-highlight';
-        span.textContent = match;
-
-        var parent = node.parentNode;
-        if (before) parent.insertBefore(document.createTextNode(before), node);
-        parent.insertBefore(span, node);
-        parent.removeChild(node);
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
 function qrClearHighlights() {
-  var inputEl = document.getElementById('qrInput');
-  var highlights = inputEl.querySelectorAll('.qr-highlight');
-  for (var i = 0; i < highlights.length; i++) {
-    var parent = highlights[i].parentNode;
-    parent.replaceChild(document.createTextNode(highlights[i].textContent), highlights[i]);
-    parent.normalize();
-  }
+  // No-op now — highlights are rebuilt on each review run
 }
 
 /* ── Quick Review Clear ── */

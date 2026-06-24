@@ -195,17 +195,30 @@ def classify_topic(text):
 # =============================================================================
 
 def _find_sentence_containing(text, phrase):
-    """Find the full sentence containing a given phrase."""
-    # Split into sentences
-    sentences = re.split(r'(?<=[.!?])\s+', text)
+    """Find the full sentence containing a given phrase. Returns the sentence string."""
     phrase_lower = phrase.lower()
-    for sent in sentences:
-        if phrase_lower in sent.lower():
-            return sent.strip()
+
+    # Try to find the phrase in the text
+    idx = text.lower().find(phrase_lower)
+    if idx != -1:
+        # Expand to full sentence boundaries
+        sent_start = max(0, text.rfind('.', 0, idx) + 1)
+        if sent_start <= 1:
+            sent_start = max(0, text.rfind('\n', 0, idx) + 1)
+        sent_end = text.find('.', idx + len(phrase))
+        if sent_end == -1:
+            sent_end = text.find('\n', idx + len(phrase))
+        if sent_end == -1:
+            sent_end = len(text)
+        else:
+            sent_end += 1
+        return text[sent_start:sent_end].strip()
+
     # Fallback: find line containing the phrase
     for line in text.split('\n'):
         if phrase_lower in line.lower():
             return line.strip()
+
     return phrase
 
 
@@ -214,8 +227,7 @@ def _find_sentence_by_pattern(text, pattern):
     m = re.search(pattern, text, re.IGNORECASE)
     if not m:
         return ""
-    match_text = m.group(0)
-    return _find_sentence_containing(text, match_text)
+    return _find_sentence_containing(text, m.group(0))
 
 
 def _check_information_typing(text, topic_type):
@@ -715,6 +727,10 @@ def run_review(text):
     severity_order = {"critical": 0, "major": 1, "minor": 2}
     all_violations.sort(key=lambda v: severity_order.get(v.get("severity", "minor"), 3))
 
+    # Step 5: Resolve character positions (start/end) for each violation and suggestion
+    # This enables the frontend to render inline highlights like the Content Analysis tab
+    _resolve_positions(text, all_violations, all_suggestions)
+
     return {
         "classification": classification,
         "score": score,
@@ -724,3 +740,62 @@ def run_review(text):
         "reuse_opportunities": reuse_opportunities,
         "pass_fail": pass_fail,
     }
+
+
+def _resolve_positions(text, violations, suggestions):
+    """Add start/end character positions to violations and suggestions.
+
+    Searches the input text for the phrase that triggered each violation.
+    Positions enable the frontend to render inline highlights.
+    """
+    text_lower = text.lower()
+
+    for v in violations:
+        if "start" in v and "end" in v:
+            continue  # Already has positions
+        # Try to find the location text in the original input
+        loc = v.get("location", "")
+        if loc:
+            idx = text_lower.find(loc.lower())
+            if idx != -1:
+                v["start"] = idx
+                v["end"] = idx + len(loc)
+                continue
+            # Try first 60 chars of location
+            short = loc[:60].lower()
+            idx = text_lower.find(short)
+            if idx != -1:
+                # Find end of that sentence
+                end = text.find('.', idx + len(short))
+                if end == -1:
+                    end = text.find('\n', idx + len(short))
+                if end == -1:
+                    end = min(idx + len(loc), len(text))
+                else:
+                    end += 1
+                v["start"] = idx
+                v["end"] = end
+                continue
+        # No position found
+        v["start"] = 0
+        v["end"] = 0
+
+    for s in suggestions:
+        if "start" in s and "end" in s:
+            continue
+        original = s.get("original", "")
+        if original:
+            idx = text_lower.find(original.lower())
+            if idx != -1:
+                s["start"] = idx
+                s["end"] = idx + len(original)
+                continue
+        loc = s.get("location", "")
+        if loc:
+            idx = text_lower.find(loc.lower()[:60])
+            if idx != -1:
+                s["start"] = idx
+                s["end"] = idx + len(loc)
+                continue
+        s["start"] = 0
+        s["end"] = 0
