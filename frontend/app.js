@@ -16,7 +16,7 @@
    [FRONTEND: UI] — DOM manipulation, stays in app.js
    ============================================================ */
 function openTab(id, e) {
-  ['converter','analyzer','contentAnalysis','rewrite','markitdown'].forEach(t =>
+  ['converter','analyzer','contentAnalysis','rewrite','markitdown','quickReview'].forEach(t =>
     document.getElementById(t).style.display = 'none');
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   e.target.classList.add('active');
@@ -3969,4 +3969,306 @@ function mdShowAlert(message, type) {
 
 function mdHideAlert() {
   document.getElementById('md-alert').style.display = 'none';
+}
+
+/* ============================================================
+   QUICK REVIEW — Documentation Compliance Review
+   [FRONTEND: UI] — File upload, IPC call, render results & suggestions
+   ============================================================ */
+
+/* ── File upload handler ── */
+(function() {
+  function setupQrFileInput() {
+    var fileInput = document.getElementById('qr-file-input');
+    if (!fileInput) return;
+    fileInput.addEventListener('change', function(e) {
+      var file = e.target.files[0];
+      if (!file) return;
+      var nameEl = document.getElementById('qr-file-name');
+      nameEl.textContent = file.name;
+      nameEl.style.display = 'inline';
+
+      if (file.name.endsWith('.docx') || file.name.endsWith('.doc')) {
+        var reader = new FileReader();
+        reader.onload = function(ev) {
+          mammoth.convertToHtml({ arrayBuffer: ev.target.result })
+            .then(function(result) {
+              document.getElementById('qrInput').innerHTML = result.value;
+            })
+            .catch(function() {
+              mammoth.extractRawText({ arrayBuffer: ev.target.result })
+                .then(function(res) {
+                  document.getElementById('qrInput').innerText = res.value;
+                });
+            });
+        };
+        reader.readAsArrayBuffer(file);
+      } else {
+        var reader = new FileReader();
+        reader.onload = function(ev) {
+          document.getElementById('qrInput').innerText = ev.target.result;
+        };
+        reader.readAsText(file);
+      }
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupQrFileInput);
+  } else {
+    setupQrFileInput();
+  }
+})();
+
+/* ── Run Review ── */
+function qrRunReview() {
+  var el = document.getElementById('qrInput');
+  var text = (el.innerText || el.textContent || '').trim();
+  if (!text) {
+    alert('Please paste or upload content to review.');
+    return;
+  }
+
+  // Show loading
+  document.getElementById('qr-loading').style.display = 'inline-flex';
+  document.getElementById('qr-review-btn').disabled = true;
+
+  if (window.api && window.api.quickReview) {
+    window.api.quickReview(text).then(function(response) {
+      document.getElementById('qr-loading').style.display = 'none';
+      document.getElementById('qr-review-btn').disabled = false;
+      if (response && response.success) {
+        qrRenderResults(response.data);
+      } else {
+        var msg = (response && response.error) ? response.error.message : 'Review failed.';
+        alert('Error: ' + msg);
+      }
+    }).catch(function(err) {
+      document.getElementById('qr-loading').style.display = 'none';
+      document.getElementById('qr-review-btn').disabled = false;
+      alert('Error: ' + (err.message || 'Backend not available.'));
+    });
+  } else {
+    document.getElementById('qr-loading').style.display = 'none';
+    document.getElementById('qr-review-btn').disabled = false;
+    alert('Backend API not available. Ensure the app is running in Electron.');
+  }
+}
+
+/* ── Render Results ── */
+function qrRenderResults(data) {
+  document.getElementById('qr-results').style.display = 'block';
+
+  // Score card
+  var score = data.score || {};
+  document.getElementById('qr-score').textContent = score.total || 0;
+
+  var verdictEl = document.getElementById('qr-verdict');
+  verdictEl.textContent = score.verdict || '--';
+  // Color based on score
+  var s = score.total || 0;
+  if (s >= 95) { verdictEl.style.background = '#d4edda'; verdictEl.style.color = '#155724'; }
+  else if (s >= 90) { verdictEl.style.background = '#cce5ff'; verdictEl.style.color = '#004085'; }
+  else if (s >= 80) { verdictEl.style.background = '#fff3cd'; verdictEl.style.color = '#856404'; }
+  else if (s >= 70) { verdictEl.style.background = '#f8d7da'; verdictEl.style.color = '#721c24'; }
+  else { verdictEl.style.background = '#f5c6cb'; verdictEl.style.color = '#721c24'; }
+
+  // Topic type
+  var cls = data.classification || {};
+  document.getElementById('qr-type-label').textContent =
+    (cls.type || 'unknown').charAt(0).toUpperCase() + (cls.type || 'unknown').slice(1) +
+    ' (' + (cls.confidence || 0) + '% confidence)';
+
+  // Score breakdown
+  var breakdown = score.breakdown || {};
+  var breakdownHtml = '';
+  var labels = {
+    information_typing: 'Info Typing (25%)',
+    dita_structure: 'DITA Structure (20%)',
+    global_english: 'Global English (15%)',
+    translation_readiness: 'Translation (15%)',
+    writing_quality: 'Writing Quality (10%)',
+    terminology: 'Terminology (5%)',
+    reusability: 'Reusability (5%)',
+    content_efficiency: 'Efficiency (5%)',
+  };
+  for (var key in labels) {
+    if (breakdown.hasOwnProperty(key)) {
+      var val = breakdown[key];
+      var color = val >= 90 ? '#155724' : val >= 70 ? '#856404' : '#721c24';
+      breakdownHtml += '<div class="qr-score-item"><span class="qr-score-label">' +
+        labels[key] + '</span><span class="qr-score-val" style="color:' + color + '">' +
+        val + '%</span></div>';
+    }
+  }
+  document.getElementById('qr-score-breakdown').innerHTML = breakdownHtml;
+
+  // Violations
+  var violations = data.violations || [];
+  document.getElementById('qr-violation-count').textContent = violations.length;
+  var vHtml = '';
+  for (var i = 0; i < violations.length; i++) {
+    var v = violations[i];
+    var sevClass = v.severity === 'critical' ? '' : v.severity === 'major' ? ' major' : ' minor';
+    var sevLabel = v.severity.charAt(0).toUpperCase() + v.severity.slice(1);
+    var locAttr = v.location ? ' data-location="' + hEsc(v.location) + '"' : '';
+    vHtml += '<div class="qr-violation-item' + sevClass + '" onclick="qrHighlightLocation(this)"' + locAttr + ' style="cursor:pointer;">' +
+      '<div class="qr-v-rule">[' + sevLabel + '] ' + hEsc(v.rule || '') + '</div>' +
+      '<div class="qr-v-msg">' + hEsc(v.message || '') + '</div>' +
+      (v.location ? '<div class="qr-v-location">"' + hEsc(v.location.length > 120 ? v.location.substring(0,120) + '...' : v.location) + '"</div>' : '') +
+      '</div>';
+  }
+  document.getElementById('qr-violation-list').innerHTML = vHtml || '<div style="color:#666;font-size:12px;">No violations found.</div>';
+
+  // Translation risks
+  var risks = data.translation_risks || [];
+  if (risks.length > 0) {
+    document.getElementById('qr-translation-risks').style.display = 'block';
+    document.getElementById('qr-translation-list').innerHTML =
+      risks.map(function(r) { return '<div style="margin-bottom:4px;">• ' + hEsc(r) + '</div>'; }).join('');
+  } else {
+    document.getElementById('qr-translation-risks').style.display = 'none';
+  }
+
+  // Reuse opportunities
+  var reuse = data.reuse_opportunities || [];
+  if (reuse.length > 0) {
+    document.getElementById('qr-reuse-opps').style.display = 'block';
+    document.getElementById('qr-reuse-list').innerHTML =
+      reuse.map(function(r) { return '<div style="margin-bottom:4px;">• ' + hEsc(r) + '</div>'; }).join('');
+  } else {
+    document.getElementById('qr-reuse-opps').style.display = 'none';
+  }
+
+  // Suggestions pane
+  var suggestions = data.suggestions || [];
+  var sugPane = document.getElementById('qr-suggestions-pane');
+  if (suggestions.length > 0) {
+    sugPane.style.display = 'flex';
+    document.getElementById('qr-suggestion-count').textContent = suggestions.length;
+    var sHtml = '';
+    for (var j = 0; j < suggestions.length; j++) {
+      var sg = suggestions[j];
+      var sgLocAttr = sg.location ? ' data-location="' + hEsc(sg.location) + '"' : '';
+      sHtml += '<div class="qr-suggestion-card" data-idx="' + j + '"' + sgLocAttr + ' onclick="qrHighlightLocation(this)">' +
+        (sg.location ? '<div class="qr-s-location">"' + hEsc(sg.location.length > 100 ? sg.location.substring(0,100) + '...' : sg.location) + '"</div>' : '') +
+        '<div class="qr-s-original">' + hEsc(sg.original || '') + '</div>' +
+        '<div class="qr-s-suggested">' + hEsc(sg.suggested || '') + '</div>' +
+        '<div class="qr-s-reason">' + hEsc(sg.reason || '') + ' <em>(' + hEsc(sg.rule || '') + ')</em></div>' +
+        '<div class="qr-s-actions">' +
+          '<button class="qr-accept" onclick="event.stopPropagation();qrAcceptSuggestion(' + j + ')">Accept</button>' +
+          '<button class="qr-dismiss" onclick="event.stopPropagation();qrDismissSuggestion(' + j + ')">Dismiss</button>' +
+        '</div>' +
+      '</div>';
+    }
+    document.getElementById('qr-suggestion-list').innerHTML = sHtml;
+  } else {
+    sugPane.style.display = 'none';
+  }
+}
+
+/* ── Suggestion actions ── */
+var _qrLastData = null;
+
+function qrAcceptSuggestion(idx) {
+  var card = document.querySelector('.qr-suggestion-card[data-idx="' + idx + '"]');
+  if (card) {
+    card.style.opacity = '0.4';
+    card.querySelector('.qr-accept').disabled = true;
+    card.querySelector('.qr-dismiss').disabled = true;
+    card.querySelector('.qr-s-suggested').style.fontWeight = '700';
+    card.querySelector('.qr-s-suggested').style.color = '#28a745';
+  }
+  // Apply the suggestion in the input content
+  var el = document.getElementById('qrInput');
+  var origEl = card ? card.querySelector('.qr-s-original') : null;
+  var sugEl = card ? card.querySelector('.qr-s-suggested') : null;
+  if (origEl && sugEl && el) {
+    var original = origEl.textContent;
+    var suggested = sugEl.textContent;
+    var html = el.innerHTML;
+    // Simple text replacement in the input
+    var escaped = original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    var regex = new RegExp(escaped, 'i');
+    el.innerHTML = html.replace(regex, '<mark style="background:#d4edda;">' + hEsc(suggested) + '</mark>');
+  }
+}
+
+function qrDismissSuggestion(idx) {
+  var card = document.querySelector('.qr-suggestion-card[data-idx="' + idx + '"]');
+  if (card) {
+    card.style.opacity = '0.3';
+    card.querySelector('.qr-accept').disabled = true;
+    card.querySelector('.qr-dismiss').disabled = true;
+  }
+}
+
+function qrAcceptAll() {
+  var cards = document.querySelectorAll('.qr-suggestion-card');
+  for (var i = 0; i < cards.length; i++) {
+    if (cards[i].style.opacity !== '0.3' && cards[i].style.opacity !== '0.4') {
+      qrAcceptSuggestion(parseInt(cards[i].getAttribute('data-idx')));
+    }
+  }
+}
+
+/* ── Highlight location in input when violation/suggestion is clicked ── */
+function qrHighlightLocation(el) {
+  var location = el.getAttribute('data-location');
+  if (!location) return;
+
+  var inputEl = document.getElementById('qrInput');
+
+  // Remove previous highlights
+  qrClearHighlights();
+
+  // Find the sentence in the input and wrap it with a highlight span
+  var html = inputEl.innerHTML;
+  var escapedLoc = location.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  var regexSafe = escapedLoc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  var regex = new RegExp('(' + regexSafe + ')', 'i');
+
+  if (regex.test(html)) {
+    inputEl.innerHTML = html.replace(regex, '<span class="qr-highlight">$1</span>');
+  } else {
+    // Fallback: match a shorter prefix of the sentence
+    var shortSnippet = escapedLoc.substring(0, Math.min(50, escapedLoc.length));
+    var shortSafe = shortSnippet.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    var shortRegex = new RegExp('([^<]*' + shortSafe + '[^<]*)', 'i');
+    if (shortRegex.test(html)) {
+      inputEl.innerHTML = html.replace(shortRegex, '<span class="qr-highlight">$1</span>');
+    }
+  }
+
+  // Scroll the highlight into view
+  var highlightSpan = inputEl.querySelector('.qr-highlight');
+  if (highlightSpan) {
+    highlightSpan.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  // Mark the clicked item as active
+  document.querySelectorAll('.qr-violation-item, .qr-suggestion-card').forEach(function(item) {
+    item.classList.remove('qr-active');
+  });
+  el.classList.add('qr-active');
+}
+
+function qrClearHighlights() {
+  var inputEl = document.getElementById('qrInput');
+  var highlights = inputEl.querySelectorAll('.qr-highlight');
+  for (var i = 0; i < highlights.length; i++) {
+    var parent = highlights[i].parentNode;
+    parent.replaceChild(document.createTextNode(highlights[i].textContent), highlights[i]);
+    parent.normalize();
+  }
+}
+
+/* ── Quick Review Clear ── */
+function qrClear() {
+  document.getElementById('qrInput').innerHTML = '';
+  document.getElementById('qr-results').style.display = 'none';
+  document.getElementById('qr-suggestions-pane').style.display = 'none';
+  var nameEl = document.getElementById('qr-file-name');
+  if (nameEl) { nameEl.style.display = 'none'; nameEl.textContent = ''; }
+  var fileInput = document.getElementById('qr-file-input');
+  if (fileInput) fileInput.value = '';
 }

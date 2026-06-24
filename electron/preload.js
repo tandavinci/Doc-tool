@@ -48,6 +48,13 @@ contextBridge.exposeInMainWorld('api', {
   markitdownConvert: (payload) => ipcRenderer.invoke('markitdown-convert', payload),
 
   /**
+   * Run quick documentation compliance review.
+   * @param {string} text - Content to review
+   * @returns {Promise<object>} - { success, data: { classification, score, violations, suggestions, ... } }
+   */
+  quickReview: (text) => ipcRenderer.invoke('quick-review', text),
+
+  /**
    * Set the Electron window title bar text.
    * @param {string} title - Title to display in the window title bar
    */

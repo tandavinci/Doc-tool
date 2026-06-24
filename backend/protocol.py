@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 sys.path.insert(0, ".")
 import analyzer
 import markitdown_handler
+import review_engine
 
 
 # =============================================================================
@@ -180,6 +181,24 @@ def handle_markitdown(request_id, payload):
                        f"Conversion failed: {str(e)}")
 
 
+def handle_quick_review(request_id, payload):
+    """Handle quick documentation review request."""
+    text = payload.get("text", "")
+    logger.debug(f"[DEBUG] Action 'quick_review' received: id={request_id}, text_len={len(text)}")
+    if not text:
+        error_response(request_id, "INVALID_REQUEST", "Missing 'text' in payload")
+        return
+    start_time = time.time()
+    try:
+        result = review_engine.run_review(text)
+        duration = int((time.time() - start_time) * 1000)
+        logger.info(f"Handler completed: id={request_id}, action=quick_review, duration={duration}ms")
+        success_response(request_id, result)
+    except Exception as e:
+        logger.error(f"Quick review error: id={request_id}, msg={str(e)}")
+        error_response(request_id, "REVIEW_ERROR", f"Review failed: {str(e)}")
+
+
 # =============================================================================
 # ACTION ROUTER
 # =============================================================================
@@ -190,6 +209,7 @@ ACTION_HANDLERS = {
     "convert_dita": handle_convert_dita,
     "impact_analyze": handle_impact_analyze,
     "markitdown": handle_markitdown,
+    "quick_review": handle_quick_review,
 }
 
 

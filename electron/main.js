@@ -248,6 +248,14 @@ ipcMain.handle('markitdown-convert', async (event, payload) => {
   }
 });
 
+ipcMain.handle('quick-review', async (event, text) => {
+  try {
+    return await sendToBackend('quick_review', { text });
+  } catch (e) {
+    return { id: null, success: false, error: { code: 'IPC_ERROR', message: e.message } };
+  }
+});
+
 // =============================================================================
 // WINDOW CREATION
 // =============================================================================
