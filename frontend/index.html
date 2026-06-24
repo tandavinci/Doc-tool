@@ -759,25 +759,58 @@
 <script src="app.js"></script>
 
 <!-- Close Confirmation Popup -->
-<div id="close-confirm-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;align-items:center;justify-content:center;">
-  <div style="background:#fff;border-radius:16px;padding:28px 32px;text-align:center;box-shadow:0 8px 40px rgba(0,0,0,0.3);max-width:380px;width:90%;animation:close-pop-in 0.2s ease-out;">
-    <img src="assets/close-cat.gif" alt="Are you sure?" style="width:200px;height:auto;border-radius:12px;margin-bottom:16px;">
-    <h3 style="margin:0 0 8px;font-size:18px;color:#1a2332;">Do you really want to close this application?</h3>
-    <p style="margin:0 0 20px;font-size:13px;color:#666;">Any unsaved changes will be lost.</p>
-    <div style="display:flex;gap:12px;justify-content:center;">
-      <button onclick="window.api.cancelClose();document.getElementById('close-confirm-overlay').style.display='none';"
-              style="padding:10px 24px;border:1px solid #ccc;border-radius:8px;background:#fff;font-size:14px;cursor:pointer;font-weight:500;">
+<div id="close-confirm-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:20px;padding:32px 36px;text-align:center;box-shadow:0 12px 60px rgba(0,0,0,0.4);max-width:400px;width:90%;animation:close-pop-in 0.25s ease-out;">
+    <!-- Cat face SVG illustration -->
+    <div style="margin-bottom:16px;">
+      <svg width="120" height="120" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+        <!-- Ears -->
+        <polygon points="25,45 35,10 50,40" fill="#a0a0a0" stroke="#666" stroke-width="1.5"/>
+        <polygon points="95,45 85,10 70,40" fill="#a0a0a0" stroke="#666" stroke-width="1.5"/>
+        <polygon points="30,40 37,18 47,38" fill="#ffb6c1"/>
+        <polygon points="90,40 83,18 73,38" fill="#ffb6c1"/>
+        <!-- Head -->
+        <ellipse cx="60" cy="65" rx="38" ry="35" fill="#c0c0c0" stroke="#666" stroke-width="1.5"/>
+        <!-- Eyes (big, staring) -->
+        <ellipse cx="45" cy="60" rx="10" ry="11" fill="#fff" stroke="#333" stroke-width="1.5"/>
+        <ellipse cx="75" cy="60" rx="10" ry="11" fill="#fff" stroke="#333" stroke-width="1.5"/>
+        <circle cx="45" cy="62" r="6" fill="#222"/>
+        <circle cx="75" cy="62" r="6" fill="#222"/>
+        <circle cx="43" cy="59" r="2.5" fill="#fff"/>
+        <circle cx="73" cy="59" r="2.5" fill="#fff"/>
+        <!-- Nose -->
+        <polygon points="60,72 56,76 64,76" fill="#ffb6c1"/>
+        <!-- Mouth -->
+        <path d="M56,78 Q60,82 64,78" fill="none" stroke="#666" stroke-width="1.2"/>
+        <path d="M52,78 Q48,80 44,78" fill="none" stroke="#666" stroke-width="0.8"/>
+        <path d="M68,78 Q72,80 76,78" fill="none" stroke="#666" stroke-width="0.8"/>
+        <!-- Whiskers -->
+        <line x1="20" y1="68" x2="42" y2="72" stroke="#666" stroke-width="0.8"/>
+        <line x1="20" y1="74" x2="42" y2="75" stroke="#666" stroke-width="0.8"/>
+        <line x1="20" y1="80" x2="42" y2="78" stroke="#666" stroke-width="0.8"/>
+        <line x1="100" y1="68" x2="78" y2="72" stroke="#666" stroke-width="0.8"/>
+        <line x1="100" y1="74" x2="78" y2="75" stroke="#666" stroke-width="0.8"/>
+        <line x1="100" y1="80" x2="78" y2="78" stroke="#666" stroke-width="0.8"/>
+      </svg>
+    </div>
+    <h3 style="margin:0 0 8px;font-size:20px;color:#1a2332;font-weight:700;">Do you really want to close this application?</h3>
+    <p style="margin:0 0 24px;font-size:14px;color:#666;">Any unsaved changes will be lost.</p>
+    <div style="display:flex;gap:16px;justify-content:center;">
+      <button id="close-no-btn" onclick="window.api.cancelClose();document.getElementById('close-confirm-overlay').style.display='none';"
+              style="padding:12px 32px;border:2px solid #007cba;border-radius:10px;background:#fff;font-size:15px;cursor:pointer;font-weight:600;color:#007cba;transition:all 0.15s;">
         No, Stay
       </button>
-      <button onclick="window.api.confirmClose();"
-              style="padding:10px 24px;border:none;border-radius:8px;background:#dc3545;color:#fff;font-size:14px;cursor:pointer;font-weight:600;">
+      <button id="close-yes-btn" onclick="window.api.confirmClose();"
+              style="padding:12px 32px;border:2px solid #dc3545;border-radius:10px;background:#dc3545;color:#fff;font-size:15px;cursor:pointer;font-weight:600;transition:all 0.15s;">
         Yes, Close
       </button>
     </div>
   </div>
 </div>
 <style>
-  @keyframes close-pop-in { from { transform:scale(0.8);opacity:0; } to { transform:scale(1);opacity:1; } }
+  @keyframes close-pop-in { from { transform:scale(0.85);opacity:0; } to { transform:scale(1);opacity:1; } }
+  #close-no-btn:hover { background:#007cba; color:#fff; }
+  #close-yes-btn:hover { background:#a71d2a; border-color:#a71d2a; }
 </style>
 <script>
   // Listen for close confirmation request
