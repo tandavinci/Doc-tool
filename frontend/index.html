@@ -761,33 +761,12 @@
 <!-- Close Confirmation Popup -->
 <div id="close-confirm-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;align-items:center;justify-content:center;">
   <div style="background:#fff;border-radius:20px;padding:32px 36px;text-align:center;box-shadow:0 12px 60px rgba(0,0,0,0.4);max-width:400px;width:90%;animation:close-pop-in 0.25s ease-out;">
-    <!-- Cat stare image - tries multiple sources, falls back to SVG -->
-    <div style="margin-bottom:16px;">
-      <img id="close-cat-img"
-           src="assets/close-cat.gif"
-           alt="Cat staring at you"
-           style="width:200px;height:auto;border-radius:12px;">
+    <!-- Cat stare GIF from Tenor (embed) -->
+    <div style="margin-bottom:16px;display:flex;justify-content:center;">
+      <div style="width:200px;height:150px;border-radius:12px;overflow:hidden;background:#f0f0f0;">
+        <iframe src="https://tenor.com/embed/206864628426625656" width="200" height="150" frameborder="0" allowfullscreen style="border:none;border-radius:12px;"></iframe>
+      </div>
     </div>
-    <script>
-      (function(){
-        var img = document.getElementById('close-cat-img');
-        var sources = [
-          'assets/close-cat.gif',
-          'https://i.imgflip.com/7wmp1c.gif',
-          'https://media.tenor.com/2bvRptSIq3IAAAAd/cat-stare.gif'
-        ];
-        var idx = 0;
-        img.onerror = function() {
-          idx++;
-          if (idx < sources.length) {
-            img.src = sources[idx];
-          } else {
-            // Final fallback: SVG cat
-            img.outerHTML = '<svg width="150" height="150" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg"><polygon points="25,45 35,10 50,40" fill="#a0a0a0"/><polygon points="95,45 85,10 70,40" fill="#a0a0a0"/><ellipse cx="60" cy="65" rx="38" ry="35" fill="#c0c0c0" stroke="#666" stroke-width="1.5"/><ellipse cx="45" cy="60" rx="10" ry="11" fill="#fff" stroke="#333" stroke-width="1.5"/><ellipse cx="75" cy="60" rx="10" ry="11" fill="#fff" stroke="#333" stroke-width="1.5"/><circle cx="45" cy="62" r="6" fill="#222"/><circle cx="75" cy="62" r="6" fill="#222"/><circle cx="43" cy="59" r="2.5" fill="#fff"/><circle cx="73" cy="59" r="2.5" fill="#fff"/><polygon points="60,72 56,76 64,76" fill="#ffb6c1"/><path d="M56,78 Q60,82 64,78" fill="none" stroke="#666" stroke-width="1.2"/></svg>';
-          }
-        };
-      })();
-    </script>
     <h3 style="margin:0 0 8px;font-size:20px;color:#1a2332;font-weight:700;">Do you really want to close this application?</h3>
     <p style="margin:0 0 24px;font-size:14px;color:#666;">Any unsaved changes will be lost.</p>
     <div style="display:flex;gap:16px;justify-content:center;">
