@@ -68,7 +68,9 @@ def _preprocess_html_input(html_text):
         text, flags=re.DOTALL | re.IGNORECASE
     )
 
-    # Convert ordered lists
+    # Convert ordered lists — merge adjacent <ol> blocks first
+    text = re.sub(r'</ol>\s*<ol[^>]*>', '', text, flags=re.IGNORECASE)
+
     def _convert_ol(m):
         items = re.findall(r'<li[^>]*>(.*?)</li>', m.group(0), re.DOTALL | re.IGNORECASE)
         result = '\n'
@@ -78,7 +80,10 @@ def _preprocess_html_input(html_text):
 
     text = re.sub(r'<ol[^>]*>.*?</ol>', _convert_ol, text, flags=re.DOTALL | re.IGNORECASE)
 
-    # Convert unordered lists
+    # Convert unordered lists — merge adjacent <ul> blocks first
+    # Word often puts each bullet in its own <ul>, merge them
+    text = re.sub(r'</ul>\s*<ul[^>]*>', '', text, flags=re.IGNORECASE)
+
     def _convert_ul(m):
         items = re.findall(r'<li[^>]*>(.*?)</li>', m.group(0), re.DOTALL | re.IGNORECASE)
         result = '\n'
@@ -322,6 +327,16 @@ def _apply_bold_markers(text, is_task=False):
         # Skip note-type prefixes
         if re.match(r'^(Note|Warning|Caution|Tip|Important|Danger)$', word, re.IGNORECASE):
             return word
+
+        # Skip if bold text is the entire line content (it's a title, not a UI element)
+        # Check if there's nothing else meaningful on this line besides the bold marker
+        line_start = text.rfind('\n', 0, m.start()) + 1
+        line_end = text.find('\n', m.end())
+        if line_end == -1:
+            line_end = len(text)
+        line_content = text[line_start:line_end].strip()
+        if line_content == '{{BOLD:' + word + '}}':
+            return word  # It's a standalone title — don't tag
 
         # Check if followed by a UI trigger word
         pos = m.end()
@@ -589,25 +604,52 @@ def generate_concept_xml(text):
 
 
 def _parse_ordered_list(lines, start_idx, is_task=False):
-    """Parse consecutive ordered list items into <ol> XML."""
+    """Parse consecutive ordered list items into <ol> XML.
+    Skips blank lines between items (common in Word paste).
+    """
     xml = "<ol>\n"
     idx = start_idx
-    while idx < len(lines) and _is_ordered_list_item(lines[idx]):
-        content = _strip_ordered_prefix(lines[idx]).strip()
-        xml += "<li>" + _apply_inline_tags(content, is_task=is_task) + "</li>\n"
-        idx += 1
+    while idx < len(lines):
+        if _is_ordered_list_item(lines[idx]):
+            content = _strip_ordered_prefix(lines[idx]).strip()
+            xml += "<li>" + _apply_inline_tags(content, is_task=is_task) + "</li>\n"
+            idx += 1
+        elif not lines[idx].strip():
+            peek = idx + 1
+            while peek < len(lines) and not lines[peek].strip():
+                peek += 1
+            if peek < len(lines) and _is_ordered_list_item(lines[peek]):
+                idx = peek
+            else:
+                break
+        else:
+            break
     xml += "</ol>\n"
     return xml, idx
 
 
 def _parse_unordered_list(lines, start_idx, is_task=False):
-    """Parse consecutive unordered list items into <ul> XML."""
+    """Parse consecutive unordered list items into <ul> XML.
+    Skips blank lines between items (common in Word paste).
+    """
     xml = "<ul>\n"
     idx = start_idx
-    while idx < len(lines) and _is_unordered_list_item(lines[idx]):
-        content = _strip_unordered_prefix(lines[idx]).strip()
-        xml += "<li>" + _apply_inline_tags(content, is_task=is_task) + "</li>\n"
-        idx += 1
+    while idx < len(lines):
+        if _is_unordered_list_item(lines[idx]):
+            content = _strip_unordered_prefix(lines[idx]).strip()
+            xml += "<li>" + _apply_inline_tags(content, is_task=is_task) + "</li>\n"
+            idx += 1
+        elif not lines[idx].strip():
+            # Blank line — check if next non-blank line is still a list item
+            peek = idx + 1
+            while peek < len(lines) and not lines[peek].strip():
+                peek += 1
+            if peek < len(lines) and _is_unordered_list_item(lines[peek]):
+                idx = peek  # Skip blank lines, continue collecting
+            else:
+                break  # End of list
+        else:
+            break
     xml += "</ul>\n"
     return xml, idx
 
