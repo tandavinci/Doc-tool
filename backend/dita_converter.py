@@ -179,6 +179,7 @@ UICONTROL_TRIGGERS = [
     "field", "fields", "tab", "tabs", "button", "buttons",
     "menu", "menus", "widget", "widgets", "check box",
     "check boxes", "option", "options", "module", "modules",
+    "form", "forms",
 ]
 
 # Context words that trigger <wintitle> on the preceding word(s)
@@ -365,13 +366,15 @@ def _apply_bold_markers(text, is_task=False):
         if line_content == '{{BOLD:' + word + '}}':
             return word  # standalone bold = title, handled elsewhere
 
-        # Check if followed by a UI trigger word
+        # Check if followed by a UI trigger word → tag directly as <uicontrol>
         pos = m.end()
         remaining = text[pos:pos + 30] if pos < len(text) else ''
-        for trigger in UICONTROL_TRIGGERS + WINTITLE_TRIGGERS:
+        for trigger in WINTITLE_TRIGGERS:
             if remaining.lstrip().lower().startswith(trigger):
-                # Trigger word follows — just unwrap, let _apply_uicontrol handle it
-                return word
+                return '<wintitle>' + word + '</wintitle>'
+        for trigger in UICONTROL_TRIGGERS:
+            if remaining.lstrip().lower().startswith(trigger):
+                return '<uicontrol>' + word + '</uicontrol>'
 
         # No trigger word follows — this bold word is a standalone UI element
         return '<uicontrol>' + word + '</uicontrol>'
