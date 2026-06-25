@@ -34,11 +34,19 @@ def _preprocess_markdown_bold(text):
     """Convert markdown-style **bold** to {{BOLD:...}} markers.
 
     This handles plain text input where bold is indicated with ** delimiters.
+    Strips trailing colons from the bold text (colon stays outside the marker).
     """
     if not text or '**' not in text:
         return text
-    # Convert **text** to {{BOLD:text}}
-    return re.sub(r'\*\*(.+?)\*\*', r'{{BOLD:\1}}', text)
+
+    def _md_bold_replacer(m):
+        content = m.group(1)
+        # If bold text ends with ':', move colon outside the marker
+        if content.endswith(':'):
+            return '{{BOLD:' + content[:-1] + '}}:'
+        return '{{BOLD:' + content + '}}'
+
+    return re.sub(r'\*\*(.+?)\*\*', _md_bold_replacer, text)
 
 def _preprocess_html_input(html_text):
     """Convert HTML input (from rich paste) into structured plain text.
@@ -130,6 +138,10 @@ def _preprocess_html_input(html_text):
 
     # Strip remaining HTML tags
     text = _strip_tags(text)
+
+    # Convert markdown-style **bold** to {{BOLD:...}} markers
+    # (handles cases where ** appears in the text after HTML stripping)
+    text = _preprocess_markdown_bold(text)
 
     # Clean up: remove excessive blank lines, trim
     text = re.sub(r'\n{3,}', '\n\n', text)
