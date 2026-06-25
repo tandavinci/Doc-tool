@@ -51,6 +51,7 @@ a = Analysis(
     datas=markitdown_datas,
     hiddenimports=[
         'analyzer', 'rules', 'utils', 'markitdown_handler',
+        'review_engine', 'dita_converter',
     ] + markitdown_hiddenimports + extra_hiddenimports,
     hookspath=[],
     hooksconfig={},
