@@ -30,6 +30,16 @@ import re
 # HTML INPUT PREPROCESSING
 # =============================================================================
 
+def _preprocess_markdown_bold(text):
+    """Convert markdown-style **bold** to {{BOLD:...}} markers.
+
+    This handles plain text input where bold is indicated with ** delimiters.
+    """
+    if not text or '**' not in text:
+        return text
+    # Convert **text** to {{BOLD:text}}
+    return re.sub(r'\*\*(.+?)\*\*', r'{{BOLD:\1}}', text)
+
 def _preprocess_html_input(html_text):
     """Convert HTML input (from rich paste) into structured plain text.
 
@@ -43,8 +53,13 @@ def _preprocess_html_input(html_text):
 
     This allows the existing plain-text converter to work with rich content.
     """
-    if not html_text or '<' not in html_text:
-        return html_text  # Not HTML, return as-is
+    if not html_text:
+        return html_text
+    # Check if this is actually HTML (has HTML tags like <p>, <div>, etc.)
+    # A lone < in plain text (like "Qty < Safety") should NOT trigger HTML processing
+    if not re.search(r'<(?:p|div|ul|ol|li|h[1-6]|strong|em|b|i|table|br|span|a)\b', html_text, re.IGNORECASE):
+        # Not HTML — check for markdown-style bold (**text**)
+        return _preprocess_markdown_bold(html_text)
 
     # Use regex-based HTML parsing (no external dependencies)
     text = html_text
