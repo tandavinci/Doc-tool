@@ -328,15 +328,15 @@ def _apply_bold_markers(text, is_task=False):
         if re.match(r'^(Note|Warning|Caution|Tip|Important|Danger)$', word, re.IGNORECASE):
             return word
 
-        # Skip if bold text is the entire line content (it's a title, not a UI element)
-        # Check if there's nothing else meaningful on this line besides the bold marker
+        # If bold text is the entire line content, it was already handled as section title
+        # by the main loop — just return the word plain (shouldn't reach here for titles)
         line_start = text.rfind('\n', 0, m.start()) + 1
         line_end = text.find('\n', m.end())
         if line_end == -1:
             line_end = len(text)
         line_content = text[line_start:line_end].strip()
         if line_content == '{{BOLD:' + word + '}}':
-            return word  # It's a standalone title — don't tag
+            return word  # standalone bold = title, handled elsewhere
 
         # Check if followed by a UI trigger word
         pos = m.end()
@@ -584,7 +584,19 @@ def generate_concept_xml(text):
             xml_parts.append(list_xml)
             continue
 
-        # Check for heading / section
+        # Check for section title (bold standalone line from pasted content)
+        # Detect {{BOLD:...}} that is the entire line content = section title
+        bold_title_match = re.match(r'^\s*\{\{BOLD:(.*?)\}\}\s*$', line)
+        if bold_title_match:
+            if in_section:
+                xml_parts.append("</section>\n")
+            title_text = bold_title_match.group(1)
+            xml_parts.append('<section>\n<title>' + xml_escape(title_text) + '</title>\n')
+            in_section = True
+            idx += 1
+            continue
+
+        # Check for section title (from ALL CAPS heading preprocessing)
         if _is_heading_line(line):
             if in_section:
                 xml_parts.append("</section>\n")
