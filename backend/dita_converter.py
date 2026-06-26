@@ -201,10 +201,9 @@ def _apply_uicontrol(text):
     result = text
     for trigger in UICONTROL_TRIGGERS:
         pattern = re.compile(
-            r'(?<!</)(?<!<\w)'  # Negative lookbehind: not inside a closing tag
-            r'\b((?:[A-Z][a-z]+|[A-Z]{2,})'
-            r'(?:(?:\s+(?:from|for|of|to|and|or|in|on|by|with))?'
-            r'\s+(?:[A-Z][a-z]+|[A-Z]{2,}))*'
+            r'\b((?:[A-Z][A-Za-z0-9]*)'
+            r'(?:(?:\s+(?:from|for|of|to|in|on|by|with|By))?'
+            r'\s+(?:[A-Z0-9][A-Za-z0-9]*))*'
             r'(?:\s*\([^)]*\))?)'
             r'(\s+' + re.escape(trigger) + r')\b'
         )
