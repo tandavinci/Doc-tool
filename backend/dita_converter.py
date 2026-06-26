@@ -140,8 +140,30 @@ def _preprocess_html_input(html_text):
     text = _strip_tags(text)
 
     # Convert markdown-style **bold** to {{BOLD:...}} markers
-    # (handles cases where ** appears in the text after HTML stripping)
     text = _preprocess_markdown_bold(text)
+
+    # Merge broken lines: if a line starts with lowercase or is a continuation
+    # of the previous sentence (previous line doesn't end with a block-ending pattern),
+    # merge it with the previous line. This fixes the contenteditable wrapping issue.
+    lines = text.split('\n')
+    merged = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            merged.append('')  # preserve blank lines (paragraph breaks)
+            continue
+        # Check if this line is a continuation of the previous
+        if (merged and merged[-1] and stripped
+                and not stripped.startswith('-')
+                and not stripped.startswith('{{BOLD:')
+                and not re.match(r'^\d+[\.\)]', stripped)
+                and not re.match(r'^(Note|Warning|Caution|Tip|Important)', stripped, re.IGNORECASE)
+                and stripped[0].islower()):
+            # Continuation line — merge with previous
+            merged[-1] = merged[-1].rstrip() + ' ' + stripped
+        else:
+            merged.append(line)
+    text = '\n'.join(merged)
 
     # Clean up: remove excessive blank lines, trim
     text = re.sub(r'\n{3,}', '\n\n', text)
