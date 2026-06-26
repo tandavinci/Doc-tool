@@ -179,7 +179,7 @@ UICONTROL_TRIGGERS = [
     "field", "fields", "tab", "tabs", "button", "buttons",
     "menu", "menus", "widget", "widgets", "check box",
     "check boxes", "option", "options", "module", "modules",
-    "form", "forms",
+    "form", "forms", "column", "columns",
 ]
 
 # Context words that trigger <wintitle> on the preceding word(s)
@@ -196,33 +196,29 @@ USERINPUT_TRIGGERS = [r"set\s+to", r"as"]
 def _apply_uicontrol(text):
     """Apply <uicontrol> tags to words preceding UI context words.
 
-    The context word itself (field, button, etc.) is NOT tagged.
-    Matches proper UI element names: sequences of capitalized words
-    (possibly with prepositions like 'from', 'of') that appear immediately
-    before the trigger word. Does NOT match single common words like 'the', 'this'.
+    Skips text already inside XML tags to prevent double-tagging.
     """
     result = text
     for trigger in UICONTROL_TRIGGERS:
-        # Match: A proper name (starts with uppercase, may contain prepositions
-        # connecting capitalized words) immediately before the trigger word.
-        # Must have at least one capitalized word that isn't a common article/pronoun.
         pattern = re.compile(
-            r'\b((?:[A-Z][a-z]+|[A-Z]{2,})'  # First cap word (not single letter common words)
+            r'(?<!</)(?<!<\w)'  # Negative lookbehind: not inside a closing tag
+            r'\b((?:[A-Z][a-z]+|[A-Z]{2,})'
             r'(?:(?:\s+(?:from|for|of|to|and|or|in|on|by|with))?'
-            r'\s+(?:[A-Z][a-z]+|[A-Z]{2,}))*'  # Additional cap words with optional preps
-            r'(?:\s*\([^)]*\))?)'  # Optional parenthetical like (code123)
+            r'\s+(?:[A-Z][a-z]+|[A-Z]{2,}))*'
+            r'(?:\s*\([^)]*\))?)'
             r'(\s+' + re.escape(trigger) + r')\b'
         )
 
         def _uicontrol_replacer(m):
             name = m.group(1).strip()
             suffix = m.group(2)
-            if not name or name.startswith("<") or len(name) < 2:
+            if not name or len(name) < 2:
                 return m.group(0)
-            # Skip common words that aren't UI names
+            # Skip if already tagged
+            if '<uicontrol>' in name or '<wintitle>' in name:
+                return m.group(0)
             skip_words = {'The', 'This', 'That', 'These', 'Those', 'Each',
                           'Every', 'Some', 'Any', 'All', 'No', 'One', 'Its'}
-            # If name starts with a skip word, strip it and keep it outside the tag
             for sw in skip_words:
                 if name.startswith(sw + ' '):
                     prefix = sw + ' '
