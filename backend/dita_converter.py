@@ -664,36 +664,16 @@ def generate_concept_xml(text):
             continue
 
         # Check for section title (bold standalone line from pasted content)
-        # Only create a section if bold line is followed by 2+ paragraphs of content
-        # (not just a single description line, which indicates a field definition)
+        # Every bold standalone line becomes a section title
         bold_title_match = re.match(r'^\s*\{\{BOLD:(.*?)\}\}\s*$', line)
         if bold_title_match:
             title_text = bold_title_match.group(1)
-            # Look ahead: count content lines before next bold line or end
-            content_lines_ahead = 0
-            peek = idx + 1
-            while peek < len(lines):
-                peek_line = lines[peek].strip()
-                if not peek_line:
-                    peek += 1
-                    continue
-                if re.match(r'^\s*\{\{BOLD:.*\}\}\s*$', peek_line) or _is_heading_line(peek_line):
-                    break
-                content_lines_ahead += 1
-                peek += 1
-            # Section title: 2+ content lines ahead (substantial content)
-            if content_lines_ahead >= 2:
-                if in_section:
-                    xml_parts.append("</section>\n")
-                xml_parts.append('<section>\n<title>' + xml_escape(title_text) + '</title>\n')
-                in_section = True
-                idx += 1
-                continue
-            else:
-                # Field definition: bold name + single description = just paragraphs
-                xml_parts.append("<p><uicontrol>" + xml_escape(title_text) + "</uicontrol></p>\n")
-                idx += 1
-                continue
+            if in_section:
+                xml_parts.append("</section>\n")
+            xml_parts.append('<section>\n<title>' + xml_escape(title_text) + '</title>\n')
+            in_section = True
+            idx += 1
+            continue
 
         # Check for section title (from ALL CAPS heading preprocessing)
         if _is_heading_line(line):
