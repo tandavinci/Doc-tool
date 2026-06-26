@@ -36,23 +36,30 @@ def _preprocess_markdown_bold(text):
     This handles plain text input where bold is indicated with ** delimiters.
     Strips trailing colons from the bold text (colon stays outside the marker).
     Merges adjacent bold markers like **Word1** **Word2** into one.
+    Handles bold text that spans line breaks (joins them with space).
     """
     if not text or '**' not in text:
         return text
 
     # First merge adjacent bold markers: **Word1** **Word2** → **Word1 Word2**
     text = re.sub(r'\*\*(.+?)\*\*\s*\*\*(.+?)\*\*', r'**\1 \2**', text)
-    # Repeat for 3+ adjacent
     text = re.sub(r'\*\*(.+?)\*\*\s*\*\*(.+?)\*\*', r'**\1 \2**', text)
 
+    # Handle bold spanning line breaks: **text\nmore text** → **text more text**
+    # Match ** ... ** allowing newlines inside, then collapse whitespace
     def _md_bold_replacer(m):
         content = m.group(1)
+        # Collapse any newlines/extra whitespace inside the bold text
+        content = re.sub(r'\s+', ' ', content).strip()
+        if not content:
+            return ''
         # If bold text ends with ':', move colon outside the marker
         if content.endswith(':'):
             return '{{BOLD:' + content[:-1] + '}}:'
         return '{{BOLD:' + content + '}}'
 
-    return re.sub(r'\*\*(.+?)\*\*', _md_bold_replacer, text)
+    # Use re.DOTALL so .+? matches across newlines
+    return re.sub(r'\*\*(.+?)\*\*', _md_bold_replacer, text, flags=re.DOTALL)
 
 def _preprocess_html_input(html_text):
     """Convert HTML input (from rich paste) into structured plain text.
@@ -91,9 +98,10 @@ def _preprocess_html_input(html_text):
 
     # Preserve bold/strong text with markers so the converter can detect them
     # Bold words are potential candidates for <uicontrol> or <wintitle>
+    # Use re.DOTALL to handle bold spanning multiple elements
     text = re.sub(
         r'<(strong|b)\b[^>]*>(.*?)</\1>',
-        lambda m: '{{BOLD:' + _strip_tags(m.group(2)).strip() + '}}',
+        lambda m: '{{BOLD:' + re.sub(r'\s+', ' ', _strip_tags(m.group(2))).strip() + '}}',
         text, flags=re.DOTALL | re.IGNORECASE
     )
 
