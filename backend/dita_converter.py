@@ -142,9 +142,7 @@ def _preprocess_html_input(html_text):
     # Convert markdown-style **bold** to {{BOLD:...}} markers
     text = _preprocess_markdown_bold(text)
 
-    # Merge broken lines: if a line starts with lowercase or is a continuation
-    # of the previous sentence (previous line doesn't end with a block-ending pattern),
-    # merge it with the previous line. This fixes the contenteditable wrapping issue.
+    # Merge broken lines: fix contenteditable wrapping and split bullet+text
     lines = text.split('\n')
     merged = []
     for line in lines:
@@ -152,7 +150,22 @@ def _preprocess_html_input(html_text):
         if not stripped:
             merged.append('')  # preserve blank lines (paragraph breaks)
             continue
-        # Check if this line is a continuation of the previous
+
+        # Check if this is a lone bullet character (Word splits bullet from text)
+        # Merge with the NEXT line when we encounter it
+        if re.match(r'^[\-\*\+\u2022\u2023\u25E6\u00B7\u2013\u2014\u25AA\u25AB\u27A2o]$', stripped):
+            # Lone bullet — merge with whatever comes next
+            merged.append(stripped + ' ')
+            continue
+
+        # If previous line is a lone bullet waiting for text, append to it
+        if merged and merged[-1].strip() and re.match(
+                r'^[\-\*\+\u2022\u2023\u25E6\u00B7\u2013\u2014\u25AA\u25AB\u27A2o]\s*$',
+                merged[-1].strip()):
+            merged[-1] = merged[-1].strip() + ' ' + stripped
+            continue
+
+        # Check if this line is a continuation of the previous (starts lowercase)
         if (merged and merged[-1] and stripped
                 and not _is_unordered_list_item(stripped)
                 and not stripped.startswith('{{BOLD:')
@@ -487,6 +500,7 @@ def _is_unordered_list_item(line):
     - Bullet (•), triangular bullet (‣), white bullet (◦)
     - Middle dot (·), en-dash (–), em-dash (—)
     - Small circle (o) followed by space (Word-style)
+    Handles multiple spaces/tabs between bullet and text.
     """
     return bool(re.match(
         r'^[\-\*\+\u2022\u2023\u25E6\u00B7\u2013\u2014\u25AA\u25AB\u27A2]\s+', line
