@@ -154,7 +154,7 @@ def _preprocess_html_input(html_text):
             continue
         # Check if this line is a continuation of the previous
         if (merged and merged[-1] and stripped
-                and not stripped.startswith('-')
+                and not _is_unordered_list_item(stripped)
                 and not stripped.startswith('{{BOLD:')
                 and not re.match(r'^\d+[\.\)]', stripped)
                 and not re.match(r'^(Note|Warning|Caution|Tip|Important)', stripped, re.IGNORECASE)
@@ -480,13 +480,25 @@ def _strip_ordered_prefix(line):
 
 
 def _is_unordered_list_item(line):
-    """Check if a line is a bullet list item."""
-    return bool(re.match(r'^[\-\*\u2022\u2023\u25E6]\s+', line))
+    """Check if a line is a bullet list item.
+
+    Recognizes common bullet characters from Word, Google Docs, and plain text:
+    - Hyphen (-), asterisk (*), plus (+)
+    - Bullet (•), triangular bullet (‣), white bullet (◦)
+    - Middle dot (·), en-dash (–), em-dash (—)
+    - Small circle (o) followed by space (Word-style)
+    """
+    return bool(re.match(
+        r'^[\-\*\+\u2022\u2023\u25E6\u00B7\u2013\u2014\u25AA\u25AB\u27A2]\s+', line
+    )) or bool(re.match(r'^o\s+\S', line))
 
 
 def _strip_unordered_prefix(line):
     """Remove the bullet prefix from an unordered list item."""
-    return re.sub(r'^[\-\*\u2022\u2023\u25E6]\s+', '', line)
+    result = re.sub(r'^[\-\*\+\u2022\u2023\u25E6\u00B7\u2013\u2014\u25AA\u25AB\u27A2]\s+', '', line)
+    if result == line:
+        result = re.sub(r'^o\s+', '', line)
+    return result
 
 
 def _is_heading_line(line):
