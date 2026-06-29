@@ -59,7 +59,10 @@ def _preprocess_markdown_bold(text):
         return '{{BOLD:' + content + '}}'
 
     # Use re.DOTALL so .+? matches across newlines
-    return re.sub(r'\*\*(.+?)\*\*', _md_bold_replacer, text, flags=re.DOTALL)
+    result = re.sub(r'\*\*(.+?)\*\*', _md_bold_replacer, text, flags=re.DOTALL)
+    # Remove empty bold markers (from stray ****)
+    result = re.sub(r'\{\{BOLD:\s*\}\}', '', result)
+    return result
 
 def _preprocess_html_input(html_text):
     """Convert HTML input (from rich paste) into structured plain text.
@@ -179,17 +182,27 @@ def _preprocess_html_input(html_text):
             merged[-1] = merged[-1].strip() + ' ' + stripped
             continue
 
-        # Check if this line is a continuation of the previous (starts lowercase)
+        # Check if this line is a continuation of the previous
+        # Merge if: starts lowercase OR previous line doesn't end with sentence punctuation
+        # (indicating the line was broken mid-sentence by word wrap)
         if (merged and merged[-1] and stripped
                 and not _is_unordered_list_item(stripped)
                 and not stripped.startswith('{{BOLD:')
                 and not re.match(r'^\d+[\.\)]', stripped)
-                and not re.match(r'^(Note|Warning|Caution|Tip|Important)', stripped, re.IGNORECASE)
-                and stripped[0].islower()):
-            # Continuation line — merge with previous
-            merged[-1] = merged[-1].rstrip() + ' ' + stripped
-        else:
-            merged.append(line)
+                and not re.match(r'^(Note|Warning|Caution|Tip|Important)', stripped, re.IGNORECASE)):
+            prev = merged[-1].rstrip()
+            # Merge if starts lowercase
+            if stripped[0].islower():
+                merged[-1] = prev + ' ' + stripped
+                continue
+            # Merge if previous line ends mid-sentence (no period, colon, or closing paren)
+            # and this line doesn't look like a new heading/title
+            if (prev and not prev.endswith(('.', '!', '?', ':', ')'))
+                    and not re.match(r'^\s*\{\{BOLD:', prev)
+                    and not _is_heading_line(prev)):
+                merged[-1] = prev + ' ' + stripped
+                continue
+        merged.append(line)
     text = '\n'.join(merged)
 
     # Clean up: remove excessive blank lines, trim
@@ -530,23 +543,38 @@ def _strip_unordered_prefix(line):
 
 
 def _is_heading_line(line):
-    """Check if a line appears to be a heading.
+    """Check if a line appears to be a heading/section title.
 
-    Only treats lines as headings if they came from HTML heading tags
-    (preprocessed to ALL CAPS by _preprocess_html_input).
-    Plain text that happens to be short or title-case is NOT treated as a heading
-    to avoid creating unnecessary sections.
+    Detects:
+    - ALL CAPS lines (from HTML heading preprocessing)
+    - Title Case short lines that look like section headings
+      (short, no ending punctuation, mostly capitalized words)
     """
     stripped = line.strip()
     if not stripped:
         return False
-    # Only detect as heading if ALL CAPS (from HTML preprocessing of <h1>-<h6>)
+    # ALL CAPS (from HTML preprocessing of <h1>-<h6>)
     if (stripped == stripped.upper()
             and len(stripped) > 2
             and stripped != stripped.lower()
             and len(stripped.split()) <= 10
             and not stripped.endswith(('.', ',', ';', ':'))):
         return True
+    # Title Case: short line, starts with uppercase, no ending sentence punctuation,
+    # most words capitalized, and no more than ~8 words (looks like a heading)
+    words = stripped.split()
+    if (len(words) <= 8
+            and len(stripped) < 80
+            and stripped[0].isupper()
+            and not stripped.endswith(('.', ',', ';', ':', '!', '?'))
+            and not _is_unordered_list_item(stripped)
+            and not re.match(r'^\d+[\.\)]', stripped)
+            and not stripped.startswith('{{BOLD:')
+            and not re.match(r'^(Note|Warning|Caution|Tip|Important|The|This|A|An|If|When|You|It|In|For|Use)\b', stripped)):
+        # Count capitalized words (skip short prepositions)
+        cap_words = sum(1 for w in words if w[0].isupper() or len(w) <= 3)
+        if cap_words >= len(words) * 0.6:
+            return True
     return False
 
 
