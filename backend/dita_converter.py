@@ -26,6 +26,102 @@ Rules applied:
 import re
 
 
+def _process_table_cell(cell_html):
+    """Process HTML content inside a table cell into DITA-compatible content.
+
+    Handles:
+    - Plain text paragraphs → wrapped in <p> if multiple paragraphs
+    - Bullet lists → <ul><li>
+    - Numbered lists → <ol><li>
+    - Notes → <note>
+    - Line breaks → space or <p> breaks
+    """
+    if not cell_html or not cell_html.strip():
+        return ''
+
+    # Convert lists inside the cell
+    cell = cell_html
+
+    # Convert <ul><li> to bullet markers
+    cell = re.sub(r'</ul>\s*<ul[^>]*>', '', cell, flags=re.IGNORECASE)
+    def _cell_ul(m):
+        items = re.findall(r'<li[^>]*>(.*?)</li>', m.group(0), re.DOTALL | re.IGNORECASE)
+        parts = []
+        for item in items:
+            parts.append('<li>' + _strip_tags(item).strip() + '</li>')
+        return '<ul>' + ''.join(parts) + '</ul>'
+    cell = re.sub(r'<ul[^>]*>.*?</ul>', _cell_ul, cell, flags=re.DOTALL | re.IGNORECASE)
+
+    # Convert <ol><li>
+    cell = re.sub(r'</ol>\s*<ol[^>]*>', '', cell, flags=re.IGNORECASE)
+    def _cell_ol(m):
+        items = re.findall(r'<li[^>]*>(.*?)</li>', m.group(0), re.DOTALL | re.IGNORECASE)
+        parts = []
+        for item in items:
+            parts.append('<li>' + _strip_tags(item).strip() + '</li>')
+        return '<ol>' + ''.join(parts) + '</ol>'
+    cell = re.sub(r'<ol[^>]*>.*?</ol>', _cell_ol, cell, flags=re.DOTALL | re.IGNORECASE)
+
+    # Convert <br> to newlines for processing
+    cell = re.sub(r'<br\s*/?\s*>', '\n', cell, flags=re.IGNORECASE)
+    # Convert block elements
+    cell = re.sub(r'</p>', '\n', cell, flags=re.IGNORECASE)
+    cell = re.sub(r'<p[^>]*>', '', cell, flags=re.IGNORECASE)
+
+    # Preserve <ul>, <ol> tags that we already converted
+    # Strip other HTML tags
+    cell = re.sub(r'<(?!/?(?:ul|ol|li|note))[^>]+>', '', cell)
+
+    # Decode entities
+    cell = cell.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&nbsp;', ' ')
+
+    # Handle Note: prefix
+    lines_list = cell.split('\n')
+    processed_lines = []
+    for l in lines_list:
+        note_match = re.match(r'^(Note|Warning|Caution|Tip|Important)\s*[:.]?\s*(.*)', l.strip(), re.IGNORECASE)
+        if note_match:
+            note_type = note_match.group(1).lower()
+            note_content = note_match.group(2)
+            if note_type == 'note':
+                processed_lines.append('<note>' + note_content + '</note>')
+            else:
+                processed_lines.append('<note type="' + note_type + '">' + note_content + '</note>')
+        else:
+            processed_lines.append(l)
+    cell = '\n'.join(processed_lines)
+
+    # Clean up whitespace
+    cell = re.sub(r'\n{3,}', '\n\n', cell).strip()
+
+    # If cell has multiple paragraphs, wrap in <p> tags
+    lines = cell.split('\n')
+    # Filter empty lines and check if we need <p> wrapping
+    non_empty = [l.strip() for l in lines if l.strip()]
+    if len(non_empty) <= 1:
+        # Single line or simple content
+        content = non_empty[0] if non_empty else ''
+        # Don't wrap in <p> if it's already a list or note
+        if content.startswith('<ul>') or content.startswith('<ol>') or content.startswith('<note'):
+            return content
+        return content
+    else:
+        # Multiple lines — wrap each in <p>, but keep lists/notes as-is
+        result = ''
+        for line in non_empty:
+            if line.startswith('<ul>') or line.startswith('<ol>') or line.startswith('<note'):
+                result += line
+            elif line.startswith('\u00b7') or line.startswith('-') or line.startswith('*'):
+                # Bullet char in cell — collect into ul
+                bullet_text = re.sub(r'^[\u00b7\-\*]\s*', '', line)
+                result += '<ul><li>' + bullet_text + '</li></ul>'
+            else:
+                result += '<p>' + line + '</p>'
+        # Merge adjacent ul tags
+        result = re.sub(r'</ul>\s*<ul>', '', result)
+        return result
+
+
 # =============================================================================
 # HTML INPUT PREPROCESSING
 # =============================================================================
@@ -133,16 +229,63 @@ def _preprocess_html_input(html_text):
 
     text = re.sub(r'<ul[^>]*>.*?</ul>', _convert_ul, text, flags=re.DOTALL | re.IGNORECASE)
 
-    # Convert tables to pipe-delimited format
-    def _convert_table(m):
-        rows = re.findall(r'<tr[^>]*>(.*?)</tr>', m.group(0), re.DOTALL | re.IGNORECASE)
-        result = '\n'
-        for row in rows:
-            cells = re.findall(r'<t[hd][^>]*>(.*?)</t[hd]>', row, re.DOTALL | re.IGNORECASE)
-            result += '| ' + ' | '.join(_strip_tags(c).strip() for c in cells) + ' |\n'
-        return result + '\n'
+    # Convert tables directly to DITA table XML format
+    # This preserves complex cell content (notes, lists, multi-line text)
+    def _convert_table_to_dita(m):
+        table_html = m.group(0)
+        rows = re.findall(r'<tr[^>]*>(.*?)</tr>', table_html, re.DOTALL | re.IGNORECASE)
+        if not rows:
+            return ''
 
-    text = re.sub(r'<table[^>]*>.*?</table>', _convert_table, text, flags=re.DOTALL | re.IGNORECASE)
+        # Determine number of columns from first row
+        first_row_cells = re.findall(r'<t[hd][^>]*>(.*?)</t[hd]>', rows[0], re.DOTALL | re.IGNORECASE)
+        num_cols = len(first_row_cells)
+        if num_cols == 0:
+            return ''
+
+        xml = '\n{{DITA_TABLE_START}}\n'
+        xml += '<table>\n'
+        xml += '<tgroup cols="' + str(num_cols) + '">\n'
+        for i in range(1, num_cols + 1):
+            xml += '<colspec colname="col' + str(i) + '" colwidth="1*"/>\n'
+
+        # Check if first row is header (contains <th> tags)
+        is_header_row = bool(re.search(r'<th\b', rows[0], re.IGNORECASE))
+
+        if is_header_row:
+            xml += '<thead>\n<row>\n'
+            for cell in first_row_cells:
+                cell_text = _strip_tags(cell).strip()
+                xml += '<entry>' + cell_text + '</entry>\n'
+            xml += '</row>\n</thead>\n'
+            data_rows = rows[1:]
+        else:
+            # Treat first row as header if all cells are short (looks like column names)
+            all_short = all(len(_strip_tags(c).strip()) < 40 for c in first_row_cells)
+            if all_short and len(rows) > 1:
+                xml += '<thead>\n<row>\n'
+                for cell in first_row_cells:
+                    cell_text = _strip_tags(cell).strip()
+                    xml += '<entry>' + cell_text + '</entry>\n'
+                xml += '</row>\n</thead>\n'
+                data_rows = rows[1:]
+            else:
+                data_rows = rows
+
+        xml += '<tbody>\n'
+        for row in data_rows:
+            cells = re.findall(r'<t[hd][^>]*>(.*?)</t[hd]>', row, re.DOTALL | re.IGNORECASE)
+            xml += '<row>\n'
+            for cell in cells:
+                # Process cell content: preserve lists, notes, paragraphs
+                cell_content = _process_table_cell(cell)
+                xml += '<entry>' + cell_content + '</entry>\n'
+            xml += '</row>\n'
+        xml += '</tbody>\n</tgroup>\n</table>\n'
+        xml += '{{DITA_TABLE_END}}\n'
+        return xml
+
+    text = re.sub(r'<table[^>]*>.*?</table>', _convert_table_to_dita, text, flags=re.DOTALL | re.IGNORECASE)
 
     # Convert <br> to newlines
     text = re.sub(r'<br\s*/?\s*>', '\n', text, flags=re.IGNORECASE)
@@ -153,19 +296,42 @@ def _preprocess_html_input(html_text):
     text = re.sub(r'</div>', '\n', text, flags=re.IGNORECASE)
     text = re.sub(r'<div[^>]*>', '', text, flags=re.IGNORECASE)
 
-    # Strip remaining HTML tags
-    text = _strip_tags(text)
-
-    # Convert markdown-style **bold** to {{BOLD:...}} markers
-    text = _preprocess_markdown_bold(text)
+    # Strip remaining HTML tags — but preserve content inside {{DITA_TABLE_START}}...{{DITA_TABLE_END}}
+    # Split on table markers, only strip tags in non-table sections
+    parts = re.split(r'(\{\{DITA_TABLE_START\}\}.*?\{\{DITA_TABLE_END\}\})', text, flags=re.DOTALL)
+    processed_parts = []
+    for part in parts:
+        if part.startswith('{{DITA_TABLE_START}}'):
+            processed_parts.append(part)  # preserve table XML as-is
+        else:
+            stripped = _strip_tags(part)
+            stripped = _preprocess_markdown_bold(stripped)
+            processed_parts.append(stripped)
+    text = ''.join(processed_parts)
 
     # Merge broken lines: fix contenteditable wrapping and split bullet+text
+    # Skip lines inside DITA table blocks
     lines = text.split('\n')
     merged = []
+    in_table_block = False
     for line in lines:
         stripped = line.strip()
+
+        # Track table marker blocks — don't merge inside them
+        if stripped == '{{DITA_TABLE_START}}':
+            in_table_block = True
+            merged.append(line)
+            continue
+        if stripped == '{{DITA_TABLE_END}}':
+            in_table_block = False
+            merged.append(line)
+            continue
+        if in_table_block:
+            merged.append(line)
+            continue
+
         if not stripped:
-            merged.append('')  # preserve blank lines (paragraph breaks)
+            merged.append('')
             continue
 
         # Check if this is a lone bullet character (Word splits bullet from text)
@@ -661,7 +827,20 @@ def generate_concept_xml(text):
             idx += 1
             continue
 
-        # Check for table block
+        # Check for DITA table (pre-converted from HTML table in preprocessor)
+        if line.strip() == '{{DITA_TABLE_START}}':
+            # Collect all lines until {{DITA_TABLE_END}} and output as-is
+            idx += 1
+            table_xml = ''
+            while idx < len(lines) and lines[idx].strip() != '{{DITA_TABLE_END}}':
+                table_xml += lines[idx] + '\n'
+                idx += 1
+            if idx < len(lines):
+                idx += 1  # skip the END marker
+            xml_parts.append(table_xml)
+            continue
+
+        # Check for table block (pipe-delimited plain text tables)
         if _is_table_line(line):
             table_xml, idx = _parse_table_block(lines, idx)
             xml_parts.append(table_xml)
