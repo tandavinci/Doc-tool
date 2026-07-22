@@ -70,8 +70,15 @@ REWRITE_RULES = [
      'FIELD REFERENCE: "the X field is set to" → "the value in the X field is set to"'),
 
     # --- SEE REFERENCE ---
-    (r'\bSee\s+(?!,)(\w)', r'See, \1',
-     'REFERENCE: "See xxx" → "See, xxx" (comma required for topic references)'),
+    # Only add comma when "See" is followed by a topic name (Capitalized Title),
+    # a URL, or a quoted reference — not for generic usage like "see the results"
+    # These rules are case-sensitive ((?-i) prefix)
+    ('(?-i)\\bSee\\s+(?!,)([A-Z][A-Za-z0-9]+(?: [A-Z][A-Za-z0-9]+)+)',
+     r'See, \1',
+     'REFERENCE: "See TopicName" → "See, TopicName" (comma required for topic references)'),
+    ('(?-i)\\bSee\\s+(?!,)(https?://\\S+)',
+     r'See, \1',
+     'REFERENCE: "See URL" → "See, URL" (comma required for references)'),
 
     # --- PLEASE REMOVAL ---
     (r'\b[Pp]lease\s+', '',
@@ -156,7 +163,11 @@ def generate_first_draft(text):
 
     # Apply each rewrite rule
     for pattern, replacement, explanation in REWRITE_RULES:
-        regex = re.compile(pattern, re.IGNORECASE if pattern[0] != '[' else 0)
+        # Rules starting with (?-i) marker should be case-sensitive
+        if pattern.startswith('(?-i)'):
+            regex = re.compile(pattern[5:], 0)  # No flags, case-sensitive
+        else:
+            regex = re.compile(pattern, re.IGNORECASE)
         matches = list(regex.finditer(result))
         if matches:
             for m in reversed(matches):  # reverse to preserve positions
