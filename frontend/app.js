@@ -4371,9 +4371,12 @@ function qrClear() {
 })();
 
 /* ── Generate First Draft ── */
+var _fdOriginalHtml = '';
+
 function fdGenerate() {
   var el = document.getElementById('fdInput');
   var text = (el.innerText || el.textContent || '').trim();
+  _fdOriginalHtml = el.innerHTML || '';
   if (!text) { alert('Please paste or upload content to rewrite.'); return; }
 
   document.getElementById('fd-loading').style.display = 'inline-flex';
@@ -4414,12 +4417,12 @@ function fdRenderResults(data) {
   countEl.textContent = changes.length + ' change' + (changes.length !== 1 ? 's' : '') + ' applied';
   countEl.style.display = 'inline';
 
-  // Render original with deletions highlighted
-  var origHtml = _fdHighlightOriginal(original, changes);
+  // Render original pane: use the rich HTML from the input, with deletions highlighted
+  var origHtml = _fdHighlightOriginalHtml(_fdOriginalHtml, original, changes);
   document.getElementById('fd-original').innerHTML = origHtml;
 
-  // Render rewritten with insertions highlighted
-  var rewrittenHtml = _fdHighlightRewritten(original, rewritten, changes);
+  // Render rewritten pane: apply the same styling structure with insertions highlighted
+  var rewrittenHtml = _fdBuildRewrittenHtml(_fdOriginalHtml, original, rewritten, changes);
   document.getElementById('fd-rewritten').innerHTML = rewrittenHtml;
 
   // Render changes list
@@ -4434,45 +4437,95 @@ function fdRenderResults(data) {
   document.getElementById('fd-changes-list').innerHTML = listHtml || '<div style="color:#666;font-size:12px;">No changes needed — content is compliant.</div>';
 }
 
-function _fdHighlightOriginal(text, changes) {
-  // Highlight the changed portions in the original text
-  // Sort changes by position descending to apply from end to start
-  var sorted = changes.slice().sort(function(a, b) { return b.position - a.position; });
-  var result = text;
-  for (var i = 0; i < sorted.length; i++) {
-    var c = sorted[i];
-    var pos = c.position;
-    var orig = c.original;
-    var idx = result.toLowerCase().indexOf(orig.toLowerCase(), Math.max(0, pos - 10));
-    if (idx !== -1) {
-      result = result.substring(0, idx) +
-        '<span class="fd-highlight-del">' + hEsc(result.substring(idx, idx + orig.length)) + '</span>' +
-        result.substring(idx + orig.length);
-    }
+function _fdHighlightOriginalHtml(html, plainOriginal, changes) {
+  /**
+   * Take the original rich HTML and highlight the changed text portions
+   * with red strikethrough. Works by finding each change's original text
+   * in the HTML's text nodes and wrapping them.
+   */
+  if (!html || !changes.length) return html || hEsc(plainOriginal).replace(/\n/g, '<br>');
+
+  // Create a temporary container to manipulate the DOM
+  var container = document.createElement('div');
+  container.innerHTML = html;
+
+  // For each change, find and highlight in text nodes
+  for (var i = 0; i < changes.length; i++) {
+    var searchText = changes[i].original;
+    if (!searchText) continue;
+    _fdHighlightInTextNodes(container, searchText, 'fd-highlight-del');
   }
-  // Convert newlines to <br>
-  result = result.replace(/\n/g, '<br>');
-  return result;
+  return container.innerHTML;
 }
 
-function _fdHighlightRewritten(original, rewritten, changes) {
-  // Highlight the new text (replacements) in the rewritten output
-  var result = hEsc(rewritten);
-  // For each change, highlight the replacement in the rewritten text
-  for (var i = changes.length - 1; i >= 0; i--) {
+function _fdBuildRewrittenHtml(html, plainOriginal, rewritten, changes) {
+  /**
+   * Build the rewritten pane preserving original formatting where possible.
+   * Strategy: start with original HTML, apply each text replacement in the DOM,
+   * then highlight the replacements in green.
+   */
+  if (!html || !changes.length) {
+    // No changes or no HTML — just show rewritten as plain with formatting preserved
+    return hEsc(rewritten).replace(/\n/g, '<br>');
+  }
+
+  // Start with the original HTML and apply replacements to text nodes
+  var container = document.createElement('div');
+  container.innerHTML = html;
+
+  for (var i = 0; i < changes.length; i++) {
     var c = changes[i];
-    var rep = c.replacement;
-    if (!rep) continue;
-    var escaped = hEsc(rep);
-    var idx = result.indexOf(escaped);
+    if (!c.original) continue;
+    _fdReplaceInTextNodes(container, c.original, c.replacement, 'fd-highlight-ins');
+  }
+  return container.innerHTML;
+}
+
+function _fdHighlightInTextNodes(container, searchText, className) {
+  /** Walk text nodes, find searchText, wrap in a highlight span. */
+  var walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null, false);
+  var node;
+  var searchLower = searchText.toLowerCase();
+  while ((node = walker.nextNode())) {
+    var idx = node.textContent.toLowerCase().indexOf(searchLower);
     if (idx !== -1) {
-      result = result.substring(0, idx) +
-        '<span class="fd-highlight-ins">' + escaped + '</span>' +
-        result.substring(idx + escaped.length);
+      var before = node.textContent.substring(0, idx);
+      var match = node.textContent.substring(idx, idx + searchText.length);
+      var after = node.textContent.substring(idx + searchText.length);
+      var span = document.createElement('span');
+      span.className = className;
+      span.textContent = match;
+      var parent = node.parentNode;
+      if (before) parent.insertBefore(document.createTextNode(before), node);
+      parent.insertBefore(span, node);
+      if (after) parent.insertBefore(document.createTextNode(after), node);
+      parent.removeChild(node);
+      break; // One match per change
     }
   }
-  result = result.replace(/\n/g, '<br>');
-  return result;
+}
+
+function _fdReplaceInTextNodes(container, searchText, replacement, className) {
+  /** Walk text nodes, find searchText, replace with highlighted replacement. */
+  var walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null, false);
+  var node;
+  var searchLower = searchText.toLowerCase();
+  while ((node = walker.nextNode())) {
+    var idx = node.textContent.toLowerCase().indexOf(searchLower);
+    if (idx !== -1) {
+      var before = node.textContent.substring(0, idx);
+      var after = node.textContent.substring(idx + searchText.length);
+      var span = document.createElement('span');
+      span.className = className;
+      span.textContent = replacement;
+      var parent = node.parentNode;
+      if (before) parent.insertBefore(document.createTextNode(before), node);
+      parent.insertBefore(span, node);
+      if (after) parent.insertBefore(document.createTextNode(after), node);
+      parent.removeChild(node);
+      break; // One match per change
+    }
+  }
 }
 
 /* ── Copy / Download ── */
