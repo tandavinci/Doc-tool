@@ -46,6 +46,7 @@
   <span class="tab active" onclick="openTab('rewrite',event)">Initial Draft</span>
   <span class="tab"        onclick="openTab('markitdown',event)">MarkItDown</span>
   <span class="tab"        onclick="openTab('quickReview',event)">Quick Review</span>
+  <span class="tab"        onclick="openTab('firstDraft',event)">First Draft</span>
 </div>
 
 <!-- ═══════════════════════════════════════════════
@@ -757,6 +758,77 @@
 <script src="lib/jszip.min.js"></script>
 <script src="lib/xlsx.min.js"></script>
 <script src="app.js"></script>
+
+<!-- ═══════════════════════════════════════════════
+     TAB 7: FIRST DRAFT — Infor Writing Standards Rewriter
+     ═══════════════════════════════════════════════ -->
+<div id="firstDraft" class="section" style="display:none">
+  <h2>First Draft — Writing Standards</h2>
+  <p style="font-size:13px;color:#666;margin-top:0;margin-bottom:14px;">
+    Paste or upload content to rewrite it according to Infor Information Development Writing Standards. The tool applies corrections and shows a side-by-side comparison.
+  </p>
+
+  <!-- Input Area -->
+  <div style="margin-bottom:14px;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">
+      <label style="font-weight:600;font-size:13px;color:#1a2332;">Input Content</label>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+        <button class="btn-sm btn-grey" onclick="document.getElementById('fd-file-input').click()">📂 Upload</button>
+        <input type="file" id="fd-file-input" accept=".docx,.doc,.txt,.html,.htm,.md" style="display:none;">
+        <span id="fd-file-name" style="font-size:11px;color:#007cba;font-weight:600;display:none;"></span>
+      </div>
+    </div>
+    <div id="fdInput" contenteditable="true" spellcheck="true"
+         style="width:100%;min-height:150px;max-height:250px;overflow-y:auto;font-family:'Segoe UI',sans-serif;font-size:13px;padding:12px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box;background:#fff;line-height:1.6;outline:none;"
+         data-placeholder="Paste content here to generate a standards-compliant first draft..."></div>
+  </div>
+
+  <!-- Action Buttons -->
+  <div style="display:flex;gap:10px;align-items:center;margin-bottom:18px;">
+    <button id="fd-generate-btn" onclick="fdGenerate()">▶ Generate First Draft</button>
+    <button class="btn-grey" onclick="fdClear()">Clear</button>
+    <div id="fd-loading" style="display:none;margin-left:10px;">
+      <span style="display:inline-block;width:16px;height:16px;border:2px solid #ddd;border-top-color:#007cba;border-radius:50%;animation:md-spin 0.8s linear infinite;vertical-align:middle;"></span>
+      <span style="font-size:12px;color:#666;margin-left:6px;">Rewriting...</span>
+    </div>
+    <span id="fd-change-count" style="display:none;margin-left:auto;font-size:12px;font-weight:600;color:#007cba;"></span>
+  </div>
+
+  <!-- Side-by-side comparison -->
+  <div id="fd-results" style="display:none;">
+    <div style="display:flex;gap:2px;margin-bottom:8px;">
+      <div style="flex:1;font-weight:600;font-size:12px;color:#721c24;padding:6px 12px;background:#f8d7da;border-radius:6px 6px 0 0;">Original</div>
+      <div style="flex:1;font-weight:600;font-size:12px;color:#155724;padding:6px 12px;background:#d4edda;border-radius:6px 6px 0 0;">Rewritten (Standards-Compliant)</div>
+    </div>
+    <div style="display:flex;gap:2px;min-height:300px;max-height:500px;">
+      <div id="fd-original" style="flex:1;overflow-y:auto;padding:12px;border:1px solid #f5c6cb;border-radius:0 0 6px 6px;background:#fff8f8;font-size:13px;line-height:1.7;font-family:'Segoe UI',sans-serif;"></div>
+      <div id="fd-rewritten" style="flex:1;overflow-y:auto;padding:12px;border:1px solid #c3e6cb;border-radius:0 0 6px 6px;background:#f8fff8;font-size:13px;line-height:1.7;font-family:'Segoe UI',sans-serif;"></div>
+    </div>
+
+    <!-- Changes list -->
+    <div style="margin-top:14px;">
+      <div style="font-weight:600;font-size:13px;color:#1a2332;margin-bottom:8px;">Changes Applied</div>
+      <div id="fd-changes-list" style="max-height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;"></div>
+    </div>
+
+    <!-- Actions -->
+    <div style="margin-top:14px;display:flex;gap:10px;">
+      <button class="btn-sm" style="background:#007cba;color:#fff;" onclick="fdCopyRewritten()">📋 Copy Rewritten</button>
+      <button class="btn-sm btn-grey" onclick="fdDownloadRewritten()">⬇ Download</button>
+    </div>
+  </div>
+</div>
+
+<style>
+  #fdInput:empty:before { content: attr(data-placeholder); color: #999; pointer-events: none; }
+  #fdInput:focus { border-color: #007cba; box-shadow: 0 0 0 2px rgba(0,124,186,0.1); }
+  .fd-change-item { padding:8px 12px; border-radius:6px; background:#fff; border:1px solid #e9ecef; font-size:12px; }
+  .fd-change-item .fd-c-original { color:#721c24; text-decoration:line-through; }
+  .fd-change-item .fd-c-replacement { color:#155724; font-weight:500; }
+  .fd-change-item .fd-c-rule { color:#666; font-size:11px; font-style:italic; margin-top:3px; }
+  .fd-highlight-del { background:#fecdd3; text-decoration:line-through; color:#721c24; padding:1px 2px; border-radius:2px; }
+  .fd-highlight-ins { background:#bbf7d0; color:#155724; font-weight:500; padding:1px 2px; border-radius:2px; }
+</style>
 
 <!-- Close Confirmation Popup -->
 <div id="close-confirm-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;align-items:center;justify-content:center;">

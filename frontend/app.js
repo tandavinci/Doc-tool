@@ -16,7 +16,7 @@
    [FRONTEND: UI] — DOM manipulation, stays in app.js
    ============================================================ */
 function openTab(id, e) {
-  ['converter','analyzer','contentAnalysis','rewrite','markitdown','quickReview'].forEach(t =>
+  ['converter','analyzer','contentAnalysis','rewrite','markitdown','quickReview','firstDraft'].forEach(t =>
     document.getElementById(t).style.display = 'none');
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   e.target.classList.add('active');
@@ -4329,5 +4329,177 @@ function qrClear() {
   var nameEl = document.getElementById('qr-file-name');
   if (nameEl) { nameEl.style.display = 'none'; nameEl.textContent = ''; }
   var fileInput = document.getElementById('qr-file-input');
+  if (fileInput) fileInput.value = '';
+}
+
+/* ============================================================
+   FIRST DRAFT — Infor Writing Standards Rewriter
+   [FRONTEND: UI] — File upload, IPC call, side-by-side diff render
+   ============================================================ */
+
+/* ── File upload ── */
+(function() {
+  function setupFdFileInput() {
+    var fileInput = document.getElementById('fd-file-input');
+    if (!fileInput) return;
+    fileInput.addEventListener('change', function(e) {
+      var file = e.target.files[0];
+      if (!file) return;
+      var nameEl = document.getElementById('fd-file-name');
+      nameEl.textContent = file.name;
+      nameEl.style.display = 'inline';
+      if (file.name.endsWith('.docx') || file.name.endsWith('.doc')) {
+        var reader = new FileReader();
+        reader.onload = function(ev) {
+          mammoth.convertToHtml({ arrayBuffer: ev.target.result })
+            .then(function(result) { document.getElementById('fdInput').innerHTML = result.value; })
+            .catch(function() {
+              mammoth.extractRawText({ arrayBuffer: ev.target.result })
+                .then(function(res) { document.getElementById('fdInput').innerText = res.value; });
+            });
+        };
+        reader.readAsArrayBuffer(file);
+      } else {
+        var reader = new FileReader();
+        reader.onload = function(ev) { document.getElementById('fdInput').innerText = ev.target.result; };
+        reader.readAsText(file);
+      }
+    });
+  }
+  if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', setupFdFileInput); }
+  else { setupFdFileInput(); }
+})();
+
+/* ── Generate First Draft ── */
+function fdGenerate() {
+  var el = document.getElementById('fdInput');
+  var text = (el.innerText || el.textContent || '').trim();
+  if (!text) { alert('Please paste or upload content to rewrite.'); return; }
+
+  document.getElementById('fd-loading').style.display = 'inline-flex';
+  document.getElementById('fd-generate-btn').disabled = true;
+
+  if (window.api && window.api.firstDraft) {
+    window.api.firstDraft(text).then(function(response) {
+      document.getElementById('fd-loading').style.display = 'none';
+      document.getElementById('fd-generate-btn').disabled = false;
+      if (response && response.success) {
+        fdRenderResults(response.data);
+      } else {
+        var msg = (response && response.error) ? response.error.message : 'Rewrite failed.';
+        alert('Error: ' + msg);
+      }
+    }).catch(function(err) {
+      document.getElementById('fd-loading').style.display = 'none';
+      document.getElementById('fd-generate-btn').disabled = false;
+      alert('Error: ' + (err.message || 'Backend not available.'));
+    });
+  } else {
+    document.getElementById('fd-loading').style.display = 'none';
+    document.getElementById('fd-generate-btn').disabled = false;
+    alert('Backend API not available. Ensure the app is running in Electron.');
+  }
+}
+
+/* ── Render side-by-side results with highlighted changes ── */
+function fdRenderResults(data) {
+  document.getElementById('fd-results').style.display = 'block';
+
+  var original = data.original || '';
+  var rewritten = data.rewritten || '';
+  var changes = data.changes || [];
+
+  // Show change count
+  var countEl = document.getElementById('fd-change-count');
+  countEl.textContent = changes.length + ' change' + (changes.length !== 1 ? 's' : '') + ' applied';
+  countEl.style.display = 'inline';
+
+  // Render original with deletions highlighted
+  var origHtml = _fdHighlightOriginal(original, changes);
+  document.getElementById('fd-original').innerHTML = origHtml;
+
+  // Render rewritten with insertions highlighted
+  var rewrittenHtml = _fdHighlightRewritten(original, rewritten, changes);
+  document.getElementById('fd-rewritten').innerHTML = rewrittenHtml;
+
+  // Render changes list
+  var listHtml = '';
+  for (var i = 0; i < changes.length; i++) {
+    var c = changes[i];
+    listHtml += '<div class="fd-change-item">' +
+      '<span class="fd-c-original">' + hEsc(c.original) + '</span> → ' +
+      '<span class="fd-c-replacement">' + hEsc(c.replacement) + '</span>' +
+      '<div class="fd-c-rule">' + hEsc(c.rule) + '</div></div>';
+  }
+  document.getElementById('fd-changes-list').innerHTML = listHtml || '<div style="color:#666;font-size:12px;">No changes needed — content is compliant.</div>';
+}
+
+function _fdHighlightOriginal(text, changes) {
+  // Highlight the changed portions in the original text
+  // Sort changes by position descending to apply from end to start
+  var sorted = changes.slice().sort(function(a, b) { return b.position - a.position; });
+  var result = text;
+  for (var i = 0; i < sorted.length; i++) {
+    var c = sorted[i];
+    var pos = c.position;
+    var orig = c.original;
+    var idx = result.toLowerCase().indexOf(orig.toLowerCase(), Math.max(0, pos - 10));
+    if (idx !== -1) {
+      result = result.substring(0, idx) +
+        '<span class="fd-highlight-del">' + hEsc(result.substring(idx, idx + orig.length)) + '</span>' +
+        result.substring(idx + orig.length);
+    }
+  }
+  // Convert newlines to <br>
+  result = result.replace(/\n/g, '<br>');
+  return result;
+}
+
+function _fdHighlightRewritten(original, rewritten, changes) {
+  // Highlight the new text (replacements) in the rewritten output
+  var result = hEsc(rewritten);
+  // For each change, highlight the replacement in the rewritten text
+  for (var i = changes.length - 1; i >= 0; i--) {
+    var c = changes[i];
+    var rep = c.replacement;
+    if (!rep) continue;
+    var escaped = hEsc(rep);
+    var idx = result.indexOf(escaped);
+    if (idx !== -1) {
+      result = result.substring(0, idx) +
+        '<span class="fd-highlight-ins">' + escaped + '</span>' +
+        result.substring(idx + escaped.length);
+    }
+  }
+  result = result.replace(/\n/g, '<br>');
+  return result;
+}
+
+/* ── Copy / Download ── */
+function fdCopyRewritten() {
+  var el = document.getElementById('fd-rewritten');
+  var text = el.innerText || el.textContent || '';
+  navigator.clipboard.writeText(text).then(function() {
+    var btn = document.querySelector('#fd-results .btn-sm');
+    if (btn) { var orig = btn.textContent; btn.textContent = '✓ Copied!'; setTimeout(function(){ btn.textContent = orig; }, 2000); }
+  });
+}
+
+function fdDownloadRewritten() {
+  var el = document.getElementById('fd-rewritten');
+  var text = el.innerText || el.textContent || '';
+  if (!text) return;
+  var blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  saveAs(blob, 'first_draft.txt');
+}
+
+/* ── Clear ── */
+function fdClear() {
+  document.getElementById('fdInput').innerHTML = '';
+  document.getElementById('fd-results').style.display = 'none';
+  document.getElementById('fd-change-count').style.display = 'none';
+  var nameEl = document.getElementById('fd-file-name');
+  if (nameEl) { nameEl.style.display = 'none'; nameEl.textContent = ''; }
+  var fileInput = document.getElementById('fd-file-input');
   if (fileInput) fileInput.value = '';
 }

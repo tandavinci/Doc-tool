@@ -55,6 +55,13 @@ contextBridge.exposeInMainWorld('api', {
   quickReview: (text) => ipcRenderer.invoke('quick-review', text),
 
   /**
+   * Generate first draft rewrite based on Infor Writing Standards.
+   * @param {string} text - Content to rewrite
+   * @returns {Promise<object>} - { success, data: { original, rewritten, changes } }
+   */
+  firstDraft: (text) => ipcRenderer.invoke('first-draft', text),
+
+  /**
    * Set the Electron window title bar text.
    * @param {string} title - Title to display in the window title bar
    */

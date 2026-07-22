@@ -39,6 +39,7 @@ sys.path.insert(0, ".")
 import analyzer
 import markitdown_handler
 import review_engine
+import first_draft_engine
 
 
 # =============================================================================
@@ -199,6 +200,24 @@ def handle_quick_review(request_id, payload):
         error_response(request_id, "REVIEW_ERROR", f"Review failed: {str(e)}")
 
 
+def handle_first_draft(request_id, payload):
+    """Handle first draft rewriting request."""
+    text = payload.get("text", "")
+    logger.debug(f"[DEBUG] Action 'first_draft' received: id={request_id}, text_len={len(text)}")
+    if not text:
+        error_response(request_id, "INVALID_REQUEST", "Missing 'text' in payload")
+        return
+    start_time = time.time()
+    try:
+        result = first_draft_engine.generate_first_draft(text)
+        duration = int((time.time() - start_time) * 1000)
+        logger.info(f"Handler completed: id={request_id}, action=first_draft, duration={duration}ms")
+        success_response(request_id, result)
+    except Exception as e:
+        logger.error(f"First draft error: id={request_id}, msg={str(e)}")
+        error_response(request_id, "DRAFT_ERROR", f"First draft failed: {str(e)}")
+
+
 # =============================================================================
 # ACTION ROUTER
 # =============================================================================
@@ -210,6 +229,7 @@ ACTION_HANDLERS = {
     "impact_analyze": handle_impact_analyze,
     "markitdown": handle_markitdown,
     "quick_review": handle_quick_review,
+    "first_draft": handle_first_draft,
 }
 
 
