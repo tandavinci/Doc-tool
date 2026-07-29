@@ -16,7 +16,7 @@
    [FRONTEND: UI] — DOM manipulation, stays in app.js
    ============================================================ */
 function openTab(id, e) {
-  ['converter','analyzer','contentAnalysis','rewrite','markitdown','quickReview','firstDraft'].forEach(t =>
+  ['converter','analyzer','contentAnalysis','rewrite','markitdown','quickReview','firstDraft','aiAssistant'].forEach(t =>
     document.getElementById(t).style.display = 'none');
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   e.target.classList.add('active');
@@ -28,6 +28,11 @@ function openTab(id, e) {
       var page = document.getElementById('wr-page');
       if (page) page.focus();
     }, 50);
+  }
+
+  // Check AI status when switching to AI Assistant tab
+  if (id === 'aiAssistant') {
+    aiCheckStatus();
   }
 }
 
@@ -4555,4 +4560,341 @@ function fdClear() {
   if (nameEl) { nameEl.style.display = 'none'; nameEl.textContent = ''; }
   var fileInput = document.getElementById('fd-file-input');
   if (fileInput) fileInput.value = '';
+}
+
+
+/* ============================================================
+   AI ASSISTANT — Chat with Local Ollama LLM
+   [FRONTEND: UI] — Chat interaction, message rendering, IPC calls
+   ============================================================ */
+
+var _aiMessages = []; // { role: 'user'|'assistant'|'error', content: string }
+var _aiIsLoading = false;
+
+/**
+ * Check AI Assistant status (Ollama connectivity).
+ * Updates the status indicator in the header.
+ */
+function aiCheckStatus() {
+  if (!window.api || !window.api.aiStatus) {
+    aiSetStatus('offline', 'API not available');
+    return;
+  }
+
+  aiSetStatus('unknown', 'Checking...');
+
+  window.api.aiStatus().then(function(response) {
+    if (response && response.success && response.data) {
+      var data = response.data;
+      if (data.available) {
+        var label = data.model_found ? 'Online (' + data.model + ')' : 'Connected (model not found)';
+        aiSetStatus(data.model_found ? 'online' : 'unknown', label);
+      } else {
+        aiSetStatus('offline', data.error || 'Ollama not reachable');
+      }
+    } else {
+      var err = (response && response.error) ? response.error.message : 'Status check failed';
+      aiSetStatus('offline', err);
+    }
+  }).catch(function(err) {
+    aiSetStatus('offline', err.message || 'Connection error');
+  });
+}
+
+/**
+ * Update the status indicator dot and label.
+ */
+function aiSetStatus(state, label) {
+  var dot = document.getElementById('ai-status-indicator');
+  var lbl = document.getElementById('ai-status-label');
+  if (dot) {
+    dot.className = 'ai-status-dot ai-status-' + state;
+    dot.title = label;
+  }
+  if (lbl) lbl.textContent = label;
+}
+
+/**
+ * Send a message to the AI Assistant.
+ */
+function aiSendMessage() {
+  var input = document.getElementById('ai-chat-input');
+  if (!input) return;
+
+  var message = input.value.trim();
+  if (!message || _aiIsLoading) return;
+
+  // Add user message to the chat
+  aiAddMessage('user', message);
+  input.value = '';
+  input.style.height = 'auto';
+
+  // Hide welcome screen on first message
+  var welcome = document.getElementById('ai-chat-welcome');
+  if (welcome) welcome.style.display = 'none';
+
+  // Show typing indicator
+  _aiIsLoading = true;
+  aiShowTyping();
+  aiUpdateSendButton();
+
+  // Send to backend via IPC
+  if (!window.api || !window.api.aiChat) {
+    aiHideTyping();
+    _aiIsLoading = false;
+    aiUpdateSendButton();
+    aiAddMessage('error', 'AI Assistant is not available. Ensure the app is running in Electron with Ollama.');
+    return;
+  }
+
+  window.api.aiChat(message, '').then(function(response) {
+    aiHideTyping();
+    _aiIsLoading = false;
+    aiUpdateSendButton();
+
+    if (response && response.success && response.data) {
+      var data = response.data;
+      if (data.success) {
+        aiAddMessage('assistant', data.response);
+      } else {
+        aiAddMessage('error', data.error || 'AI returned an error.');
+      }
+    } else {
+      var errMsg = (response && response.error) ? response.error.message : 'Request failed.';
+      aiAddMessage('error', errMsg);
+    }
+  }).catch(function(err) {
+    aiHideTyping();
+    _aiIsLoading = false;
+    aiUpdateSendButton();
+    aiAddMessage('error', err.message || 'Connection to backend failed.');
+  });
+}
+
+/**
+ * Add a message to the chat UI.
+ */
+function aiAddMessage(role, content) {
+  _aiMessages.push({ role: role, content: content });
+
+  var container = document.getElementById('ai-chat-messages');
+  if (!container) return;
+
+  var msgDiv = document.createElement('div');
+  msgDiv.className = 'ai-msg ai-msg-' + role;
+
+  var avatar = document.createElement('div');
+  avatar.className = 'ai-msg-avatar';
+  avatar.textContent = role === 'user' ? 'U' : (role === 'assistant' ? '🤖' : '⚠');
+
+  var bubble = document.createElement('div');
+  bubble.className = 'ai-msg-bubble';
+
+  if (role === 'assistant') {
+    bubble.innerHTML = aiRenderMarkdown(content);
+  } else {
+    bubble.textContent = content;
+  }
+
+  msgDiv.appendChild(avatar);
+  msgDiv.appendChild(bubble);
+  container.appendChild(msgDiv);
+
+  // Scroll to bottom
+  container.scrollTop = container.scrollHeight;
+}
+
+/**
+ * Show the typing indicator.
+ */
+function aiShowTyping() {
+  var container = document.getElementById('ai-chat-messages');
+  if (!container) return;
+
+  var existing = document.getElementById('ai-typing');
+  if (existing) return;
+
+  var div = document.createElement('div');
+  div.id = 'ai-typing';
+  div.className = 'ai-msg ai-msg-assistant';
+  div.innerHTML = '<div class="ai-msg-avatar">🤖</div>' +
+    '<div class="ai-msg-bubble"><div class="ai-typing-indicator">' +
+    '<span class="ai-typing-dot"></span><span class="ai-typing-dot"></span><span class="ai-typing-dot"></span>' +
+    '</div></div>';
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+/**
+ * Hide the typing indicator.
+ */
+function aiHideTyping() {
+  var el = document.getElementById('ai-typing');
+  if (el) el.remove();
+}
+
+/**
+ * Update send button disabled state.
+ */
+function aiUpdateSendButton() {
+  var btn = document.getElementById('ai-send-btn');
+  if (btn) btn.disabled = _aiIsLoading;
+}
+
+/**
+ * Handle keyboard events in the chat input.
+ * Enter → send, Shift+Enter → new line.
+ */
+function aiInputKeyDown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    aiSendMessage();
+  }
+}
+
+/* Auto-resize the chat input textarea as user types */
+(function() {
+  function setupAiInputAutoResize() {
+    var input = document.getElementById('ai-chat-input');
+    if (!input) return;
+    input.addEventListener('input', function() {
+      this.style.height = 'auto';
+      this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupAiInputAutoResize);
+  } else {
+    setupAiInputAutoResize();
+  }
+})();
+
+/**
+ * Start a new chat — instant reset, no confirmation needed.
+ * Smoothly fades out existing messages and shows the welcome screen.
+ */
+function aiNewChat() {
+  // If already empty, just focus the input
+  if (_aiMessages.length === 0) {
+    var input = document.getElementById('ai-chat-input');
+    if (input) input.focus();
+    return;
+  }
+
+  _aiMessages = [];
+  _aiIsLoading = false;
+  aiHideTyping();
+  aiUpdateSendButton();
+
+  var container = document.getElementById('ai-chat-messages');
+  if (container) {
+    // Fade out existing messages
+    container.style.opacity = '0';
+    setTimeout(function() {
+      container.innerHTML = '<div class="ai-chat-welcome" id="ai-chat-welcome">' +
+        '<div class="ai-chat-welcome-icon">🤖</div>' +
+        '<h3>Infor ID Standards Assistant</h3>' +
+        '<p>I can help you write, edit, review, and plan documentation that complies with Infor Information Development standards.</p>' +
+        '<div class="ai-chat-suggestions">' +
+          '<button class="ai-suggestion-btn" onclick="aiUseSuggestion(\'Review this paragraph for Infor writing standards compliance\')">📝 Review content for compliance</button>' +
+          '<button class="ai-suggestion-btn" onclick="aiUseSuggestion(\'Rewrite this in active voice following Infor style guidelines\')">✏️ Rewrite in active voice</button>' +
+          '<button class="ai-suggestion-btn" onclick="aiUseSuggestion(\'What topic type (concept, task, or reference) should I use for this content?\')">📋 Suggest topic type</button>' +
+          '<button class="ai-suggestion-btn" onclick="aiUseSuggestion(\'Help me plan the structure for a user guide about\')">📖 Plan documentation structure</button>' +
+        '</div>' +
+      '</div>';
+      container.style.opacity = '1';
+    }, 150);
+  }
+
+  // Clear backend history silently
+  if (window.api && window.api.aiClear) {
+    window.api.aiClear().catch(function() { /* ignore */ });
+  }
+
+  // Focus the input
+  setTimeout(function() {
+    var input = document.getElementById('ai-chat-input');
+    if (input) input.focus();
+  }, 200);
+}
+
+/**
+ * Use a suggestion from the welcome screen.
+ */
+function aiUseSuggestion(text) {
+  var input = document.getElementById('ai-chat-input');
+  if (input) {
+    input.value = text;
+    input.focus();
+    // Auto-resize
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+  }
+}
+
+/**
+ * Basic Markdown renderer for assistant responses.
+ * Handles: headings, bold, italic, code blocks, inline code, lists, links, blockquotes.
+ */
+function aiRenderMarkdown(text) {
+  if (!text) return '';
+
+  var html = text;
+
+  // Escape HTML first
+  html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // Code blocks (fenced)
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, function(m, lang, code) {
+    return '<pre><code>' + code.trim() + '</code></pre>';
+  });
+
+  // Inline code
+  html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+
+  // Headings
+  html = html.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^##\s+(.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^#\s+(.+)$/gm, '<h1>$1</h1>');
+
+  // Bold and italic
+  html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+  // Links
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+
+  // Blockquotes
+  html = html.replace(/^&gt;\s?(.+)$/gm, '<blockquote>$1</blockquote>');
+
+  // Unordered lists
+  html = html.replace(/^[\*\-]\s+(.+)$/gm, '<li>$1</li>');
+
+  // Ordered lists
+  html = html.replace(/^\d+\.\s+(.+)$/gm, '<li>$1</li>');
+
+  // Wrap consecutive li elements in ul
+  html = html.replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>');
+  html = html.replace(/<\/ul>\s*<ul>/g, '');
+
+  // Paragraphs (double newline)
+  html = html.replace(/\n\n/g, '</p><p>');
+  // Single newlines within paragraphs → <br>
+  html = html.replace(/\n/g, '<br>');
+
+  html = '<p>' + html + '</p>';
+
+  // Clean up empty paragraphs and misplaced tags
+  html = html.replace(/<p>\s*<\/p>/g, '');
+  html = html.replace(/<p>\s*(<h[1-3]>)/g, '$1');
+  html = html.replace(/(<\/h[1-3]>)\s*<\/p>/g, '$1');
+  html = html.replace(/<p>\s*(<pre>)/g, '$1');
+  html = html.replace(/(<\/pre>)\s*<\/p>/g, '$1');
+  html = html.replace(/<p>\s*(<ul>)/g, '$1');
+  html = html.replace(/(<\/ul>)\s*<\/p>/g, '$1');
+  html = html.replace(/<p>\s*(<blockquote>)/g, '$1');
+  html = html.replace(/(<\/blockquote>)\s*<\/p>/g, '$1');
+
+  return html;
 }

@@ -138,8 +138,8 @@ function sendToBackend(action, payload) {
     const id = `req-${String(requestId).padStart(4, '0')}`;
     const request = { id, action, payload };
 
-    // Use longer timeout for markitdown conversions (large file processing)
-    const timeoutMs = action === 'markitdown' ? MARKITDOWN_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
+    // Use longer timeout for markitdown conversions (large file processing) and AI chat (LLM latency)
+    const timeoutMs = (action === 'markitdown' || action === 'ai_chat') ? MARKITDOWN_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
 
     // Timeout protection for stalled requests
     const timer = setTimeout(() => {
@@ -264,6 +264,30 @@ ipcMain.handle('first-draft', async (event, text) => {
   }
 });
 
+ipcMain.handle('ai-chat', async (event, message, context) => {
+  try {
+    return await sendToBackend('ai_chat', { message, context });
+  } catch (e) {
+    return { id: null, success: false, error: { code: 'IPC_ERROR', message: e.message } };
+  }
+});
+
+ipcMain.handle('ai-status', async (event) => {
+  try {
+    return await sendToBackend('ai_status', {});
+  } catch (e) {
+    return { id: null, success: false, error: { code: 'IPC_ERROR', message: e.message } };
+  }
+});
+
+ipcMain.handle('ai-clear', async (event) => {
+  try {
+    return await sendToBackend('ai_clear', {});
+  } catch (e) {
+    return { id: null, success: false, error: { code: 'IPC_ERROR', message: e.message } };
+  }
+});
+
 // =============================================================================
 // WINDOW CREATION
 // =============================================================================
@@ -313,10 +337,84 @@ function createWindow() {
 }
 
 // =============================================================================
+// OLLAMA MANAGEMENT — Auto-start bundled Ollama for offline AI
+// =============================================================================
+
+let ollamaProcess = null;
+
+/**
+ * Start the bundled Ollama server if it's not already running.
+ * In packaged mode, uses the bundled ollama.exe from resources/ollama.
+ * In development, relies on the system-installed Ollama.
+ */
+function startOllama() {
+  const { execSync } = require('child_process');
+
+  // Check if Ollama is already running
+  try {
+    execSync('tasklist /fi "imagename eq ollama.exe" | find /i "ollama.exe"', { stdio: 'pipe' });
+    console.log('[main] Ollama already running');
+    return;
+  } catch (e) {
+    // Not running — start it
+  }
+
+  let ollamaExe = 'ollama';
+
+  if (app.isPackaged) {
+    // Use bundled Ollama from resources
+    const bundledOllama = path.join(process.resourcesPath, 'ollama', 'ollama.exe');
+    const fs = require('fs');
+    if (fs.existsSync(bundledOllama)) {
+      ollamaExe = bundledOllama;
+
+      // Set OLLAMA_MODELS to bundled models directory if it exists
+      const bundledModels = path.join(process.resourcesPath, 'ollama', 'models');
+      if (fs.existsSync(bundledModels)) {
+        process.env.OLLAMA_MODELS = bundledModels;
+      }
+    } else {
+      console.log('[main] Bundled ollama.exe not found, trying system Ollama');
+    }
+  }
+
+  try {
+    ollamaProcess = spawn(ollamaExe, ['serve'], {
+      stdio: 'ignore',
+      detached: false,
+      windowsHide: true,
+    });
+
+    ollamaProcess.on('error', (err) => {
+      console.log('[main] Ollama start failed:', err.message);
+      ollamaProcess = null;
+    });
+
+    ollamaProcess.on('exit', (code) => {
+      console.log('[main] Ollama exited with code:', code);
+      ollamaProcess = null;
+    });
+
+    console.log('[main] Ollama server started');
+  } catch (e) {
+    console.log('[main] Could not start Ollama:', e.message);
+  }
+}
+
+function stopOllama() {
+  if (ollamaProcess) {
+    ollamaProcess.kill();
+    ollamaProcess = null;
+    console.log('[main] Ollama server stopped');
+  }
+}
+
+// =============================================================================
 // APP LIFECYCLE
 // =============================================================================
 
 app.whenReady().then(() => {
+  startOllama();
   spawnBackend();
   createWindow();
 
@@ -335,6 +433,7 @@ app.on('before-quit', async (event) => {
   if (pythonProcess) {
     event.preventDefault();
     await shutdownBackend();
+    stopOllama();
     app.quit();
   }
 });
