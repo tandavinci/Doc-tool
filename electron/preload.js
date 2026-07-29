@@ -62,6 +62,26 @@ contextBridge.exposeInMainWorld('api', {
   firstDraft: (text) => ipcRenderer.invoke('first-draft', text),
 
   /**
+   * Send a chat message to the AI Assistant.
+   * @param {string} message - User message text
+   * @param {string} context - Optional additional context
+   * @returns {Promise<object>} - { success, data: { success, response, error } }
+   */
+  aiChat: (message, context) => ipcRenderer.invoke('ai-chat', message, context),
+
+  /**
+   * Check AI Assistant availability (Ollama connectivity).
+   * @returns {Promise<object>} - { success, data: { available, model, ... } }
+   */
+  aiStatus: () => ipcRenderer.invoke('ai-status'),
+
+  /**
+   * Clear AI Assistant conversation history.
+   * @returns {Promise<object>} - { success, data: { success, message } }
+   */
+  aiClear: () => ipcRenderer.invoke('ai-clear'),
+
+  /**
    * Set the Electron window title bar text.
    * @param {string} title - Title to display in the window title bar
    */

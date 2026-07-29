@@ -47,6 +47,7 @@
   <span class="tab"        onclick="openTab('markitdown',event)">MarkItDown</span>
   <span class="tab"        onclick="openTab('quickReview',event)">Quick Review</span>
   <span class="tab"        onclick="openTab('firstDraft',event)">First Draft</span>
+  <span class="tab"        onclick="openTab('aiAssistant',event)">AI Assistant</span>
 </div>
 
 <!-- ═══════════════════════════════════════════════
@@ -829,6 +830,59 @@
   .fd-highlight-del { background:#fecdd3; text-decoration:line-through; color:#721c24; padding:1px 2px; border-radius:2px; }
   .fd-highlight-ins { background:#bbf7d0; color:#155724; font-weight:500; padding:1px 2px; border-radius:2px; }
 </style>
+
+<!-- ═══════════════════════════════════════════════
+     TAB 8: AI ASSISTANT — Infor ID Standards Expert
+     ═══════════════════════════════════════════════ -->
+<div id="aiAssistant" class="section" style="display:none">
+  <div class="ai-chat-container">
+
+    <!-- Header -->
+    <div class="ai-chat-header">
+      <div class="ai-chat-header-left">
+        <h2 style="margin:0;font-size:16px;">AI Assistant</h2>
+        <span class="ai-chat-subtitle">Infor ID Standards Expert (Ollama local)</span>
+      </div>
+      <div class="ai-chat-header-right">
+        <span id="ai-status-indicator" class="ai-status-dot ai-status-unknown" title="Checking..."></span>
+        <span id="ai-status-label" style="font-size:11px;color:#666;">Checking...</span>
+        <button class="btn-sm ai-new-chat-btn" onclick="aiNewChat()" title="Start a new conversation">+ New Chat</button>
+      </div>
+    </div>
+
+    <!-- Chat Messages Area -->
+    <div class="ai-chat-messages" id="ai-chat-messages">
+      <div class="ai-chat-welcome" id="ai-chat-welcome">
+        <div class="ai-chat-welcome-icon">🤖</div>
+        <h3>Infor ID Standards Assistant</h3>
+        <p>I can help you write, edit, review, and plan documentation that complies with Infor Information Development standards.</p>
+        <div class="ai-chat-suggestions">
+          <button class="ai-suggestion-btn" onclick="aiUseSuggestion('Review this paragraph for Infor writing standards compliance')">📝 Review content for compliance</button>
+          <button class="ai-suggestion-btn" onclick="aiUseSuggestion('Rewrite this in active voice following Infor style guidelines')">✏️ Rewrite in active voice</button>
+          <button class="ai-suggestion-btn" onclick="aiUseSuggestion('What topic type (concept, task, or reference) should I use for this content?')">📋 Suggest topic type</button>
+          <button class="ai-suggestion-btn" onclick="aiUseSuggestion('Help me plan the structure for a user guide about')">📖 Plan documentation structure</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Input Area -->
+    <div class="ai-chat-input-area">
+      <div class="ai-chat-input-row">
+        <textarea id="ai-chat-input" class="ai-chat-input"
+                  placeholder="Ask about Infor writing standards, request edits, or paste content for review..."
+                  rows="2"
+                  onkeydown="aiInputKeyDown(event)"></textarea>
+        <button id="ai-send-btn" class="ai-send-btn" onclick="aiSendMessage()" title="Send message (Enter)">
+          <span class="ai-send-icon">➤</span>
+        </button>
+      </div>
+      <div class="ai-chat-input-hint">
+        <span>Enter to send · Shift+Enter for new line · Powered by local Ollama</span>
+      </div>
+    </div>
+
+  </div>
+</div>
 
 <!-- Close Confirmation Popup -->
 <div id="close-confirm-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;align-items:center;justify-content:center;">

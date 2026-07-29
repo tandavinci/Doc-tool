@@ -40,6 +40,7 @@ import analyzer
 import markitdown_handler
 import review_engine
 import first_draft_engine
+import ai_assistant
 
 
 # =============================================================================
@@ -218,6 +219,47 @@ def handle_first_draft(request_id, payload):
         error_response(request_id, "DRAFT_ERROR", f"First draft failed: {str(e)}")
 
 
+def handle_ai_chat(request_id, payload):
+    """Handle AI assistant chat request."""
+    message = payload.get("message", "")
+    context = payload.get("context", "")
+    logger.debug(f"[DEBUG] Action 'ai_chat' received: id={request_id}, msg_len={len(message)}")
+    if not message:
+        error_response(request_id, "INVALID_REQUEST", "Missing 'message' in payload")
+        return
+    start_time = time.time()
+    try:
+        result = ai_assistant.chat(message, context)
+        duration = int((time.time() - start_time) * 1000)
+        logger.info(f"Handler completed: id={request_id}, action=ai_chat, duration={duration}ms")
+        success_response(request_id, result)
+    except Exception as e:
+        logger.error(f"AI chat error: id={request_id}, msg={str(e)}")
+        error_response(request_id, "AI_CHAT_ERROR", f"AI chat failed: {str(e)}")
+
+
+def handle_ai_status(request_id, payload):
+    """Handle AI assistant status check request."""
+    logger.debug(f"[DEBUG] Action 'ai_status' received: id={request_id}")
+    try:
+        result = ai_assistant.check_status()
+        success_response(request_id, result)
+    except Exception as e:
+        logger.error(f"AI status error: id={request_id}, msg={str(e)}")
+        error_response(request_id, "AI_STATUS_ERROR", f"Status check failed: {str(e)}")
+
+
+def handle_ai_clear(request_id, payload):
+    """Handle AI assistant clear history request."""
+    logger.debug(f"[DEBUG] Action 'ai_clear' received: id={request_id}")
+    try:
+        result = ai_assistant.clear_history()
+        success_response(request_id, result)
+    except Exception as e:
+        logger.error(f"AI clear error: id={request_id}, msg={str(e)}")
+        error_response(request_id, "AI_CLEAR_ERROR", f"Clear history failed: {str(e)}")
+
+
 # =============================================================================
 # ACTION ROUTER
 # =============================================================================
@@ -230,6 +272,9 @@ ACTION_HANDLERS = {
     "markitdown": handle_markitdown,
     "quick_review": handle_quick_review,
     "first_draft": handle_first_draft,
+    "ai_chat": handle_ai_chat,
+    "ai_status": handle_ai_status,
+    "ai_clear": handle_ai_clear,
 }
 
 
