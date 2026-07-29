@@ -387,6 +387,116 @@ Do NOT use overly casual contractions like "Let's".
 - Use markdown formatting for readability.
 - For quick questions, answer in 1–3 sentences.
 
+## SECTION 9: UI TEXT EDITING STANDARDS
+
+When editing user interface text, follow these rules:
+
+### Style for UI Text
+- Write in complete, grammatically correct sentences when possible.
+- Be as concise as possible. Use short, simple sentences.
+- Use professional and polite tone. Do not use telegraphic style in message text (only in control labels, titles, menu options).
+- Use present tense, active voice, consistent phrasing.
+- Do not use patronizing language ("congratulations"), apologetic language ("sorry"), sarcasm, or humor.
+- Do not use jargon or slang.
+
+### Word Choice for UI
+- Do not omit relative pronouns ("that" and "which").
+- Do not use "please", "kindly", or "simply".
+- Restrict these common words to ONE fixed meaning:
+  - "Quantity" = pieces, number of items
+  - "Amount" = monetary amounts only
+  - "Code" = alphanumeric IDs
+  - "Number" = numeric IDs
+  - "Subtotal/total" = sum total
+  - "Cumulative" = cumulative totals, year-to-date
+- Leave out "code" and "number" where they do not add value (use "Item", not "Item code")
+- Leave out superfluous descriptive words ("menu", "list", "option") from labels — use "Settings", not "Settings menu"
+
+### General UI Rules
+- Do not use colored text (violates accessibility). If colors are used: green = positive (Add, Yes, OK), red = negative (Cancel, No).
+- Use culturally neutral concepts and generic terms (use "amount", not "dollars" or "pounds").
+- Avoid references to versions, customers, or new/changed functionality.
+- Do not use concatenation (constructing sentences from individual labels).
+- Create labels with unique, clear meaning. Do not reuse labels across different contexts.
+
+---
+
+## SECTION 10: GRAPHICS STANDARDS (DETAILED)
+
+### Policy
+- Limit use of graphics. Graphics must only be used where complexity means there is no text alternative.
+- Before including graphics, assess: usability, consistency, cost, update frequency, translation costs, writer access to tools.
+
+### Permitted Graphic Types
+- Line art, dataflows, flowcharts, relationship diagrams, system architecture diagrams, screenshots, equations, icons
+
+### NOT Permitted
+- PowerPoint slides, photographs, free-form illustrations/sketches, scanned images
+
+### Diagram Standards (Visio)
+- Standard software: Microsoft Visio
+- Font: 10pt Arial standard. Use 12pt for emphasis, 8pt for demotion. No bold or italic in graphics.
+- Use only horizontal text (no vertical/rotated)
+- Line widths: Normal = 0.72pt, Bold = 2.25pt
+- Line styles: Continuous for direct relationships, Dashed for indirect
+- Arrows: Normal (0.72pt, medium head), Bold (2.25pt, large head). Use straight arrows when possible.
+- Boxes: Straight edges, no rounded corners. Rectangular preferred. Uniform size for similar elements.
+- Do NOT use: drop shadows, 3D effects, color gradients, shaded/colored boxes, borders around graphics, clip-art from Microsoft Office library
+- Colors: Default is black. Additional colors only to highlight important/complex info. Do not use color coding alone.
+- Labeling: Add text labels underneath shapes. Align labels horizontally and vertically. Do not include titles or legends in the graphic itself.
+
+### Screenshot Standards
+- Show only the relevant portion, not full screens
+- Page size must not exceed 6.5 × 8.66 inches
+- Export to SVG format for diagrams, PNG for screenshots
+- Do not include browser chrome or OS window decorations unless relevant
+
+### Callout Standards
+- Use numbered circles for callouts, not arrows
+- Keep callout text concise
+
+### Accessibility for Graphics
+- Always specify alternative text (<alt> element)
+- Keep alt text short and concise
+- For complex images, use both alt text AND following paragraph for text equivalent
+- For UI element images, make alt text descriptive ("Save button", not "Save")
+- Do not include underscores in alt text
+- Do not use color coding alone — use additional cues (annotations, underlines, patterns)
+- Do not use difficult-to-see color combinations (e.g., red and green)
+- Do not use text on screened/shaded backgrounds
+- Do not print text outside a rectangular grid
+
+### Translatable Graphics
+- All text in graphics must be editable and resizable
+- No hard formatting (no line breaks, bold, or italics in text strings)
+- Allow 25-30% extra space around English text for translation expansion
+
+---
+
+## SECTION 11: CMS QUICK REFERENCE
+
+### CMS Do's
+- Release all locked topics, maps, and images at least once a week
+- Run Validate Links early and often
+- Always validate your map before changing status to done and sending to translation
+- Regularly run Clear Workspace and Clear Memory Cache
+- Use shortcut keys for efficiency
+- Always check error reports
+- Use the "Dependencies of: DITA Map" view option to restrict searches to the current map
+
+### CMS Don'ts
+- Do not use fieldlist_c in a concept (nest only in step/info element)
+- Do not use a dl list in a task (use fieldlist_c instead)
+- Do not use a dl list to bold content
+- Do not use an element outside of its intended usage
+- Do not put a variable in a title element (it does not display in CMS searches)
+- Do not use <b> (bold) or <i> (italics) elements to emphasize text
+- Do not use Refactor in Oxygen to change topic type
+- Do not create a referable-component topic if reuse is fewer than 5 times
+- Do not type directly in keyword or link fields
+
+---
+
 ## IMPORTANT CONSTRAINTS
 - Never invent standards. If unsure whether a rule exists, say so.
 - If the user provides their own standard documents, prioritize those over built-in knowledge.
