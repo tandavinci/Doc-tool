@@ -11,12 +11,14 @@ Validates content against:
 - Conciseness / Content Reduction
 - Short Description Validation
 - Reusability Review
+- First Draft Rewriting (standards-compliant rewrite)
 
-Returns: topic classification, compliance score, violations, suggestions.
+Returns: topic classification, compliance score, violations, suggestions, rewritten draft.
 """
 
 import re
 from collections import Counter
+import first_draft_engine
 
 
 # =============================================================================
@@ -731,6 +733,9 @@ def run_review(text):
     # This enables the frontend to render inline highlights like the Content Analysis tab
     _resolve_positions(text, all_violations, all_suggestions)
 
+    # Step 6: Generate standards-compliant rewrite (First Draft)
+    draft_result = first_draft_engine.generate_first_draft(text)
+
     return {
         "classification": classification,
         "score": score,
@@ -739,6 +744,8 @@ def run_review(text):
         "translation_risks": translation_risks,
         "reuse_opportunities": reuse_opportunities,
         "pass_fail": pass_fail,
+        "rewritten": draft_result.get("rewritten", ""),
+        "rewrite_changes": draft_result.get("changes", []),
     }
 
 

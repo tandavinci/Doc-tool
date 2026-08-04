@@ -50,16 +50,9 @@ contextBridge.exposeInMainWorld('api', {
   /**
    * Run quick documentation compliance review.
    * @param {string} text - Content to review
-   * @returns {Promise<object>} - { success, data: { classification, score, violations, suggestions, ... } }
+   * @returns {Promise<object>} - { success, data: { classification, score, violations, suggestions, rewritten, rewrite_changes, ... } }
    */
   quickReview: (text) => ipcRenderer.invoke('quick-review', text),
-
-  /**
-   * Generate first draft rewrite based on Infor Writing Standards.
-   * @param {string} text - Content to rewrite
-   * @returns {Promise<object>} - { success, data: { original, rewritten, changes } }
-   */
-  firstDraft: (text) => ipcRenderer.invoke('first-draft', text),
 
   /**
    * Send a chat message to the AI Assistant.

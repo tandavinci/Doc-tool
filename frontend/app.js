@@ -16,7 +16,7 @@
    [FRONTEND: UI] — DOM manipulation, stays in app.js
    ============================================================ */
 function openTab(id, e) {
-  ['converter','analyzer','contentAnalysis','rewrite','markitdown','quickReview','firstDraft','aiAssistant'].forEach(t =>
+  ['converter','analyzer','contentAnalysis','rewrite','markitdown','quickReview','aiAssistant'].forEach(t =>
     document.getElementById(t).style.display = 'none');
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   e.target.classList.add('active');
@@ -4178,6 +4178,68 @@ function qrRenderResults(data) {
   } else {
     sugPane.style.display = 'none';
   }
+
+  // Render rewrite section (First Draft integrated)
+  var rewritten = data.rewritten || '';
+  var rewriteChanges = data.rewrite_changes || [];
+  var rewriteSection = document.getElementById('qr-rewrite-section');
+  if (rewritten && rewriteChanges.length > 0) {
+    rewriteSection.style.display = 'block';
+    document.getElementById('qr-rewrite-count').textContent = rewriteChanges.length + ' change' + (rewriteChanges.length !== 1 ? 's' : '');
+
+    // Render original with deletions highlighted
+    var origHtml = plainText;
+    var rewrittenHtml = rewritten;
+    for (var rc = 0; rc < rewriteChanges.length; rc++) {
+      var ch = rewriteChanges[rc];
+      if (ch.original) {
+        var escaped = ch.original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        var rgx = new RegExp(escaped, 'i');
+        origHtml = origHtml.replace(rgx, '<span class="fd-highlight-del">' + hEsc(ch.original) + '</span>');
+      }
+      if (ch.replacement && ch.original) {
+        var escaped2 = ch.replacement.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        var rgx2 = new RegExp(escaped2, 'i');
+        rewrittenHtml = rewrittenHtml.replace(rgx2, '<span class="fd-highlight-ins">' + hEsc(ch.replacement) + '</span>');
+      }
+    }
+    document.getElementById('qr-rewrite-original').innerHTML = hEsc(plainText).replace(/\n/g, '<br>');
+    document.getElementById('qr-rewrite-output').innerHTML = hEsc(rewritten).replace(/\n/g, '<br>');
+
+    // Render changes list
+    var changesHtml = '';
+    for (var ci = 0; ci < rewriteChanges.length; ci++) {
+      var c = rewriteChanges[ci];
+      changesHtml += '<div class="fd-change-item">' +
+        '<span class="fd-c-original">' + hEsc(c.original || '') + '</span> → ' +
+        '<span class="fd-c-replacement">' + hEsc(c.replacement || '') + '</span>' +
+        '<div class="fd-c-rule">' + hEsc(c.rule || '') + '</div></div>';
+    }
+    document.getElementById('qr-rewrite-changes').innerHTML = changesHtml || '<div style="color:#666;font-size:12px;">No changes needed — content is already compliant.</div>';
+
+    // Store for copy/download
+    window._qrRewrittenText = rewritten;
+  } else {
+    rewriteSection.style.display = 'none';
+    window._qrRewrittenText = '';
+  }
+}
+
+/* ── Rewrite copy/download in Quick Review ── */
+function qrCopyRewritten() {
+  var text = window._qrRewrittenText || '';
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(function() {
+    var btn = document.querySelector('#qr-rewrite-section .btn-sm');
+    if (btn) { var orig = btn.textContent; btn.textContent = '✓ Copied!'; setTimeout(function(){ btn.textContent = orig; }, 2000); }
+  });
+}
+
+function qrDownloadRewritten() {
+  var text = window._qrRewrittenText || '';
+  if (!text) return;
+  var blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  saveAs(blob, 'rewritten_draft.txt');
 }
 
 /* ── Suggestion actions ── */
@@ -4336,232 +4398,6 @@ function qrClear() {
   var fileInput = document.getElementById('qr-file-input');
   if (fileInput) fileInput.value = '';
 }
-
-/* ============================================================
-   FIRST DRAFT — Infor Writing Standards Rewriter
-   [FRONTEND: UI] — File upload, IPC call, side-by-side diff render
-   ============================================================ */
-
-/* ── File upload ── */
-(function() {
-  function setupFdFileInput() {
-    var fileInput = document.getElementById('fd-file-input');
-    if (!fileInput) return;
-    fileInput.addEventListener('change', function(e) {
-      var file = e.target.files[0];
-      if (!file) return;
-      var nameEl = document.getElementById('fd-file-name');
-      nameEl.textContent = file.name;
-      nameEl.style.display = 'inline';
-      if (file.name.endsWith('.docx') || file.name.endsWith('.doc')) {
-        var reader = new FileReader();
-        reader.onload = function(ev) {
-          mammoth.convertToHtml({ arrayBuffer: ev.target.result })
-            .then(function(result) { document.getElementById('fdInput').innerHTML = result.value; })
-            .catch(function() {
-              mammoth.extractRawText({ arrayBuffer: ev.target.result })
-                .then(function(res) { document.getElementById('fdInput').innerText = res.value; });
-            });
-        };
-        reader.readAsArrayBuffer(file);
-      } else {
-        var reader = new FileReader();
-        reader.onload = function(ev) { document.getElementById('fdInput').innerText = ev.target.result; };
-        reader.readAsText(file);
-      }
-    });
-  }
-  if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', setupFdFileInput); }
-  else { setupFdFileInput(); }
-})();
-
-/* ── Generate First Draft ── */
-var _fdOriginalHtml = '';
-
-function fdGenerate() {
-  var el = document.getElementById('fdInput');
-  var text = (el.innerText || el.textContent || '').trim();
-  _fdOriginalHtml = el.innerHTML || '';
-  if (!text) { alert('Please paste or upload content to rewrite.'); return; }
-
-  document.getElementById('fd-loading').style.display = 'inline-flex';
-  document.getElementById('fd-generate-btn').disabled = true;
-
-  if (window.api && window.api.firstDraft) {
-    window.api.firstDraft(text).then(function(response) {
-      document.getElementById('fd-loading').style.display = 'none';
-      document.getElementById('fd-generate-btn').disabled = false;
-      if (response && response.success) {
-        fdRenderResults(response.data);
-      } else {
-        var msg = (response && response.error) ? response.error.message : 'Rewrite failed.';
-        alert('Error: ' + msg);
-      }
-    }).catch(function(err) {
-      document.getElementById('fd-loading').style.display = 'none';
-      document.getElementById('fd-generate-btn').disabled = false;
-      alert('Error: ' + (err.message || 'Backend not available.'));
-    });
-  } else {
-    document.getElementById('fd-loading').style.display = 'none';
-    document.getElementById('fd-generate-btn').disabled = false;
-    alert('Backend API not available. Ensure the app is running in Electron.');
-  }
-}
-
-/* ── Render side-by-side results with highlighted changes ── */
-function fdRenderResults(data) {
-  document.getElementById('fd-results').style.display = 'block';
-
-  var original = data.original || '';
-  var rewritten = data.rewritten || '';
-  var changes = data.changes || [];
-
-  // Show change count
-  var countEl = document.getElementById('fd-change-count');
-  countEl.textContent = changes.length + ' change' + (changes.length !== 1 ? 's' : '') + ' applied';
-  countEl.style.display = 'inline';
-
-  // Render original pane: use the rich HTML from the input, with deletions highlighted
-  var origHtml = _fdHighlightOriginalHtml(_fdOriginalHtml, original, changes);
-  document.getElementById('fd-original').innerHTML = origHtml;
-
-  // Render rewritten pane: apply the same styling structure with insertions highlighted
-  var rewrittenHtml = _fdBuildRewrittenHtml(_fdOriginalHtml, original, rewritten, changes);
-  document.getElementById('fd-rewritten').innerHTML = rewrittenHtml;
-
-  // Render changes list
-  var listHtml = '';
-  for (var i = 0; i < changes.length; i++) {
-    var c = changes[i];
-    listHtml += '<div class="fd-change-item">' +
-      '<span class="fd-c-original">' + hEsc(c.original) + '</span> → ' +
-      '<span class="fd-c-replacement">' + hEsc(c.replacement) + '</span>' +
-      '<div class="fd-c-rule">' + hEsc(c.rule) + '</div></div>';
-  }
-  document.getElementById('fd-changes-list').innerHTML = listHtml || '<div style="color:#666;font-size:12px;">No changes needed — content is compliant.</div>';
-}
-
-function _fdHighlightOriginalHtml(html, plainOriginal, changes) {
-  /**
-   * Take the original rich HTML and highlight the changed text portions
-   * with red strikethrough. Works by finding each change's original text
-   * in the HTML's text nodes and wrapping them.
-   */
-  if (!html || !changes.length) return html || hEsc(plainOriginal).replace(/\n/g, '<br>');
-
-  // Create a temporary container to manipulate the DOM
-  var container = document.createElement('div');
-  container.innerHTML = html;
-
-  // For each change, find and highlight in text nodes
-  for (var i = 0; i < changes.length; i++) {
-    var searchText = changes[i].original;
-    if (!searchText) continue;
-    _fdHighlightInTextNodes(container, searchText, 'fd-highlight-del');
-  }
-  return container.innerHTML;
-}
-
-function _fdBuildRewrittenHtml(html, plainOriginal, rewritten, changes) {
-  /**
-   * Build the rewritten pane preserving original formatting where possible.
-   * Strategy: start with original HTML, apply each text replacement in the DOM,
-   * then highlight the replacements in green.
-   */
-  if (!html || !changes.length) {
-    // No changes or no HTML — just show rewritten as plain with formatting preserved
-    return hEsc(rewritten).replace(/\n/g, '<br>');
-  }
-
-  // Start with the original HTML and apply replacements to text nodes
-  var container = document.createElement('div');
-  container.innerHTML = html;
-
-  for (var i = 0; i < changes.length; i++) {
-    var c = changes[i];
-    if (!c.original) continue;
-    _fdReplaceInTextNodes(container, c.original, c.replacement, 'fd-highlight-ins');
-  }
-  return container.innerHTML;
-}
-
-function _fdHighlightInTextNodes(container, searchText, className) {
-  /** Walk text nodes, find searchText, wrap in a highlight span. */
-  var walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null, false);
-  var node;
-  var searchLower = searchText.toLowerCase();
-  while ((node = walker.nextNode())) {
-    var idx = node.textContent.toLowerCase().indexOf(searchLower);
-    if (idx !== -1) {
-      var before = node.textContent.substring(0, idx);
-      var match = node.textContent.substring(idx, idx + searchText.length);
-      var after = node.textContent.substring(idx + searchText.length);
-      var span = document.createElement('span');
-      span.className = className;
-      span.textContent = match;
-      var parent = node.parentNode;
-      if (before) parent.insertBefore(document.createTextNode(before), node);
-      parent.insertBefore(span, node);
-      if (after) parent.insertBefore(document.createTextNode(after), node);
-      parent.removeChild(node);
-      break; // One match per change
-    }
-  }
-}
-
-function _fdReplaceInTextNodes(container, searchText, replacement, className) {
-  /** Walk text nodes, find searchText, replace with highlighted replacement. */
-  var walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null, false);
-  var node;
-  var searchLower = searchText.toLowerCase();
-  while ((node = walker.nextNode())) {
-    var idx = node.textContent.toLowerCase().indexOf(searchLower);
-    if (idx !== -1) {
-      var before = node.textContent.substring(0, idx);
-      var after = node.textContent.substring(idx + searchText.length);
-      var span = document.createElement('span');
-      span.className = className;
-      span.textContent = replacement;
-      var parent = node.parentNode;
-      if (before) parent.insertBefore(document.createTextNode(before), node);
-      parent.insertBefore(span, node);
-      if (after) parent.insertBefore(document.createTextNode(after), node);
-      parent.removeChild(node);
-      break; // One match per change
-    }
-  }
-}
-
-/* ── Copy / Download ── */
-function fdCopyRewritten() {
-  var el = document.getElementById('fd-rewritten');
-  var text = el.innerText || el.textContent || '';
-  navigator.clipboard.writeText(text).then(function() {
-    var btn = document.querySelector('#fd-results .btn-sm');
-    if (btn) { var orig = btn.textContent; btn.textContent = '✓ Copied!'; setTimeout(function(){ btn.textContent = orig; }, 2000); }
-  });
-}
-
-function fdDownloadRewritten() {
-  var el = document.getElementById('fd-rewritten');
-  var text = el.innerText || el.textContent || '';
-  if (!text) return;
-  var blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-  saveAs(blob, 'first_draft.txt');
-}
-
-/* ── Clear ── */
-function fdClear() {
-  document.getElementById('fdInput').innerHTML = '';
-  document.getElementById('fd-results').style.display = 'none';
-  document.getElementById('fd-change-count').style.display = 'none';
-  var nameEl = document.getElementById('fd-file-name');
-  if (nameEl) { nameEl.style.display = 'none'; nameEl.textContent = ''; }
-  var fileInput = document.getElementById('fd-file-input');
-  if (fileInput) fileInput.value = '';
-}
-
 
 /* ============================================================
    AI ASSISTANT — Chat with Local Ollama LLM

@@ -256,14 +256,6 @@ ipcMain.handle('quick-review', async (event, text) => {
   }
 });
 
-ipcMain.handle('first-draft', async (event, text) => {
-  try {
-    return await sendToBackend('first_draft', { text });
-  } catch (e) {
-    return { id: null, success: false, error: { code: 'IPC_ERROR', message: e.message } };
-  }
-});
-
 ipcMain.handle('ai-chat', async (event, message, context) => {
   try {
     return await sendToBackend('ai_chat', { message, context });
