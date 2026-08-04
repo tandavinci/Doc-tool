@@ -40,6 +40,7 @@ import analyzer
 import markitdown_handler
 import review_engine
 import ai_assistant
+import doc_impact
 
 
 # =============================================================================
@@ -241,6 +242,24 @@ def handle_ai_clear(request_id, payload):
         error_response(request_id, "AI_CLEAR_ERROR", f"Clear history failed: {str(e)}")
 
 
+def handle_doc_impact(request_id, payload):
+    """Handle documentation impact assessment request."""
+    session_data = payload.get("sessionData", [])
+    logger.debug(f"[DEBUG] Action 'doc_impact' received: id={request_id}, tickets={len(session_data)}")
+    if not session_data:
+        error_response(request_id, "INVALID_REQUEST", "Missing 'sessionData' in payload")
+        return
+    start_time = time.time()
+    try:
+        result = doc_impact.analyze_session(session_data)
+        duration = int((time.time() - start_time) * 1000)
+        logger.info(f"Handler completed: id={request_id}, action=doc_impact, duration={duration}ms")
+        success_response(request_id, result)
+    except Exception as e:
+        logger.error(f"Doc impact error: id={request_id}, msg={str(e)}")
+        error_response(request_id, "DOC_IMPACT_ERROR", f"Impact assessment failed: {str(e)}")
+
+
 # =============================================================================
 # ACTION ROUTER
 # =============================================================================
@@ -252,6 +271,7 @@ ACTION_HANDLERS = {
     "impact_analyze": handle_impact_analyze,
     "markitdown": handle_markitdown,
     "quick_review": handle_quick_review,
+    "doc_impact": handle_doc_impact,
     "ai_chat": handle_ai_chat,
     "ai_status": handle_ai_status,
     "ai_clear": handle_ai_clear,

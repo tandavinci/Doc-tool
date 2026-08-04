@@ -1282,3 +1282,280 @@ input[type=file] { margin: 10px 0; }
   background: #fef3c7;
   border-color: #ca8a04;
 }
+
+
+/* ═══════════════════════════════════════════════════════════
+   DOC IMPACT — Documentation Impact Assessment Styles
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Import Area ────────────────────────────────────────── */
+.di-import-area {
+  margin-bottom: 18px;
+}
+.di-import-box {
+  border: 2px dashed #adb5bd;
+  border-radius: 10px;
+  padding: 32px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .2s, background .2s;
+}
+.di-import-box:hover,
+.di-import-box.di-dragover {
+  border-color: #007cba;
+  background: #f0f7ff;
+}
+.di-import-icon {
+  font-size: 36px;
+  margin-bottom: 8px;
+}
+.di-import-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+/* ── Summary Strip ──────────────────────────────────────── */
+.di-summary-strip {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.di-stat-card {
+  padding: 12px 18px;
+  border-radius: 8px;
+  text-align: center;
+  min-width: 90px;
+}
+.di-stat-number {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.di-stat-label {
+  font-size: 11px;
+  opacity: .85;
+  margin-top: 2px;
+}
+
+/* ── Sections ───────────────────────────────────────────── */
+.di-section {
+  margin-bottom: 24px;
+}
+.di-section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.di-badge {
+  background: #007cba;
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: 12px;
+  min-width: 20px;
+  text-align: center;
+}
+
+/* ── Severity Badge ─────────────────────────────────────── */
+.di-severity-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+/* ── Impacted Areas Grid ────────────────────────────────── */
+.di-areas-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+}
+.di-area-card {
+  background: #fff;
+  border: 1px solid #e0e4ea;
+  border-radius: 8px;
+  padding: 14px 16px;
+  transition: border-color .15s, box-shadow .15s;
+}
+.di-area-card:hover {
+  border-color: #007cba;
+  box-shadow: 0 2px 8px rgba(0, 124, 186, .1);
+}
+.di-area-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.di-area-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a2332;
+}
+.di-area-meta {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 6px;
+}
+.di-area-rec {
+  font-size: 12px;
+  color: #555;
+  font-style: italic;
+  margin-bottom: 8px;
+  padding-left: 8px;
+  border-left: 3px solid #e0e4ea;
+}
+.di-area-tickets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.di-ticket-chip {
+  font-size: 11px;
+  font-family: monospace;
+  background: #e8f4fd;
+  color: #007cba;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+/* ── Ticket Impact Cards ────────────────────────────────── */
+.di-tickets-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 500px;
+  overflow-y: auto;
+}
+.di-tickets-list::-webkit-scrollbar { width: 6px; }
+.di-tickets-list::-webkit-scrollbar-thumb { background: #c8cdd3; border-radius: 3px; }
+
+.di-ticket-card {
+  background: #fff;
+  border: 1px solid #e0e4ea;
+  border-radius: 8px;
+  padding: 12px 16px;
+  transition: border-color .15s;
+}
+.di-ticket-card:hover {
+  border-color: #007cba;
+}
+.di-ticket-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+.di-ticket-key {
+  font-size: 13px;
+  font-weight: 700;
+  font-family: monospace;
+  color: #1a2332;
+}
+.di-ticket-product {
+  font-size: 11px;
+  background: #f1f3f5;
+  color: #555;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+.di-ticket-version {
+  font-size: 11px;
+  background: #e8f4fd;
+  color: #007cba;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+.di-ticket-summary {
+  font-size: 13px;
+  color: #333;
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+.di-ticket-areas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.di-area-chip {
+  font-size: 10px;
+  background: #f0f0ff;
+  color: #4f46e5;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+  border: 1px solid #e0e0ff;
+}
+.di-ticket-recs {
+  padding-left: 6px;
+  border-left: 3px solid #d4edda;
+}
+.di-rec-item {
+  font-size: 12px;
+  color: #155724;
+  margin-bottom: 3px;
+  line-height: 1.4;
+}
+
+/* ── Timeline ───────────────────────────────────────────── */
+.di-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.di-timeline-group {
+  background: #f8fafc;
+  border: 1px solid #e0e4ea;
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+.di-timeline-version {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1a2332;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #e0e4ea;
+}
+.di-timeline-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.di-timeline-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.di-severity-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.di-timeline-key {
+  font-family: monospace;
+  font-weight: 600;
+  color: #1a2332;
+  min-width: 110px;
+}
+.di-timeline-summary {
+  color: #555;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

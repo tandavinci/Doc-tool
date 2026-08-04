@@ -46,6 +46,7 @@
   <span class="tab active" onclick="openTab('rewrite',event)">Initial Draft</span>
   <span class="tab"        onclick="openTab('markitdown',event)">MarkItDown</span>
   <span class="tab"        onclick="openTab('quickReview',event)">Quick Review</span>
+  <span class="tab"        onclick="openTab('docImpact',event)">Doc Impact</span>
   <span class="tab"        onclick="openTab('aiAssistant',event)">AI Assistant</span>
 </div>
 
@@ -794,6 +795,73 @@
   .fd-highlight-del { background:#fecdd3; text-decoration:line-through; color:#721c24; padding:1px 2px; border-radius:2px; }
   .fd-highlight-ins { background:#bbf7d0; color:#155724; font-weight:500; padding:1px 2px; border-radius:2px; }
 </style>
+
+<!-- ═══════════════════════════════════════════════
+     TAB 7: DOC IMPACT — Documentation Impact Assessment
+     ═══════════════════════════════════════════════ -->
+<div id="docImpact" class="section" style="display:none">
+  <h2>Doc Impact — Documentation Impact Assessment</h2>
+  <p style="font-size:13px;color:#666;margin-top:0;margin-bottom:14px;">
+    Import Chancellor session files to identify which documentation topics need updating based on product changes tracked in Jira.
+  </p>
+
+  <!-- Import Area -->
+  <div class="di-import-area">
+    <div class="di-import-box" id="di-drop-area">
+      <div class="di-import-icon">📂</div>
+      <p style="margin:0 0 6px;font-weight:600;color:#1a2332;">Import Chancellor Session</p>
+      <p style="margin:0;font-size:12px;color:#666;">Drop validation JSON files here, or click to browse</p>
+      <p style="margin:4px 0 0;font-size:11px;color:#999;">Accepts: validation-*.json files from .chancellor/sessions/</p>
+      <input type="file" id="di-file-input" accept=".json" multiple style="display:none;">
+    </div>
+    <div class="di-import-actions">
+      <button onclick="diRunAssessment()" id="di-run-btn" disabled>▶ Run Impact Assessment</button>
+      <button class="btn-grey" onclick="diClear()">Clear</button>
+      <span id="di-file-count" style="font-size:12px;color:#007cba;font-weight:600;margin-left:10px;display:none;"></span>
+      <div id="di-loading" style="display:none;margin-left:10px;">
+        <span style="display:inline-block;width:16px;height:16px;border:2px solid #ddd;border-top-color:#007cba;border-radius:50%;animation:md-spin 0.8s linear infinite;vertical-align:middle;"></span>
+        <span style="font-size:12px;color:#666;margin-left:6px;">Analyzing...</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results Dashboard -->
+  <div id="di-results" style="display:none;">
+
+    <!-- Summary Strip -->
+    <div class="di-summary-strip" id="di-summary-strip"></div>
+
+    <!-- Impacted Areas -->
+    <div class="di-section">
+      <div class="di-section-header">
+        <h3 style="margin:0;font-size:14px;">Impacted Documentation Areas</h3>
+        <span class="di-badge" id="di-area-count">0</span>
+      </div>
+      <div id="di-areas-list" class="di-areas-grid"></div>
+    </div>
+
+    <!-- Ticket Impact Details -->
+    <div class="di-section">
+      <div class="di-section-header">
+        <h3 style="margin:0;font-size:14px;">Ticket Impact Details</h3>
+        <span class="di-badge" id="di-ticket-count">0</span>
+        <div style="margin-left:auto;display:flex;gap:6px;">
+          <button class="btn-sm btn-grey" onclick="diExportCSV()">⬇ Export CSV</button>
+        </div>
+      </div>
+      <div id="di-tickets-list" class="di-tickets-list"></div>
+    </div>
+
+    <!-- Timeline / Release View -->
+    <div class="di-section">
+      <div class="di-section-header">
+        <h3 style="margin:0;font-size:14px;">Release Timeline</h3>
+      </div>
+      <div id="di-timeline" class="di-timeline"></div>
+    </div>
+
+  </div>
+</div>
 
 <!-- ═══════════════════════════════════════════════
      TAB 8: AI ASSISTANT — Infor ID Standards Expert

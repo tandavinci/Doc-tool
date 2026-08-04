@@ -16,7 +16,7 @@
    [FRONTEND: UI] — DOM manipulation, stays in app.js
    ============================================================ */
 function openTab(id, e) {
-  ['converter','analyzer','contentAnalysis','rewrite','markitdown','quickReview','aiAssistant'].forEach(t =>
+  ['converter','analyzer','contentAnalysis','rewrite','markitdown','quickReview','docImpact','aiAssistant'].forEach(t =>
     document.getElementById(t).style.display = 'none');
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   e.target.classList.add('active');
@@ -4398,6 +4398,258 @@ function qrClear() {
   var fileInput = document.getElementById('qr-file-input');
   if (fileInput) fileInput.value = '';
 }
+
+/* ============================================================
+   DOC IMPACT — Documentation Impact Assessment
+   [FRONTEND: UI] — File import, rendering, CSV export
+   ============================================================ */
+
+var _diSessionData = []; // Imported validation JSON objects
+var _diResults = null;   // Assessment results from backend
+
+/* ── Initialization ── */
+(function() {
+  function setupDocImpact() {
+    var dropArea = document.getElementById('di-drop-area');
+    var fileInput = document.getElementById('di-file-input');
+    if (!dropArea || !fileInput) return;
+
+    // Click to browse
+    dropArea.addEventListener('click', function() { fileInput.click(); });
+
+    // Drag and drop
+    dropArea.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      dropArea.classList.add('di-dragover');
+    });
+    dropArea.addEventListener('dragleave', function() {
+      dropArea.classList.remove('di-dragover');
+    });
+    dropArea.addEventListener('drop', function(e) {
+      e.preventDefault();
+      dropArea.classList.remove('di-dragover');
+      if (e.dataTransfer.files.length > 0) {
+        diHandleFiles(e.dataTransfer.files);
+      }
+    });
+
+    // File input change
+    fileInput.addEventListener('change', function() {
+      if (fileInput.files.length > 0) {
+        diHandleFiles(fileInput.files);
+      }
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupDocImpact);
+  } else {
+    setupDocImpact();
+  }
+})();
+
+/* ── Handle imported files ── */
+function diHandleFiles(files) {
+  var pending = files.length;
+
+  for (var i = 0; i < files.length; i++) {
+    (function(file) {
+      if (!file.name.endsWith('.json')) {
+        pending--;
+        if (pending === 0) diUpdateFileCount();
+        return;
+      }
+      var reader = new FileReader();
+      reader.onload = function(ev) {
+        try {
+          var data = JSON.parse(ev.target.result);
+          if (Array.isArray(data)) {
+            _diSessionData = _diSessionData.concat(data);
+          } else {
+            _diSessionData.push(data);
+          }
+        } catch (e) {
+          console.warn('[DocImpact] Failed to parse:', file.name, e.message);
+        }
+        pending--;
+        if (pending === 0) diUpdateFileCount();
+      };
+      reader.readAsText(file);
+    })(files[i]);
+  }
+}
+
+function diUpdateFileCount() {
+  var countEl = document.getElementById('di-file-count');
+  var btn = document.getElementById('di-run-btn');
+  if (_diSessionData.length > 0) {
+    countEl.style.display = 'inline';
+    countEl.textContent = _diSessionData.length + ' ticket(s) loaded';
+    btn.disabled = false;
+  } else {
+    countEl.style.display = 'none';
+    btn.disabled = true;
+  }
+}
+
+/* ── Run Assessment ── */
+function diRunAssessment() {
+  if (_diSessionData.length === 0) return;
+
+  document.getElementById('di-loading').style.display = 'inline-flex';
+  document.getElementById('di-run-btn').disabled = true;
+
+  if (window.api && window.api.docImpact) {
+    window.api.docImpact(_diSessionData).then(function(response) {
+      document.getElementById('di-loading').style.display = 'none';
+      document.getElementById('di-run-btn').disabled = false;
+      if (response && response.success) {
+        _diResults = response.data;
+        diRenderResults(response.data);
+      } else {
+        var msg = (response && response.error) ? response.error.message : 'Assessment failed.';
+        alert('Error: ' + msg);
+      }
+    }).catch(function(err) {
+      document.getElementById('di-loading').style.display = 'none';
+      document.getElementById('di-run-btn').disabled = false;
+      alert('Error: ' + (err.message || 'Backend not available.'));
+    });
+  } else {
+    document.getElementById('di-loading').style.display = 'none';
+    document.getElementById('di-run-btn').disabled = false;
+    alert('Backend API not available. Ensure the app is running in Electron.');
+  }
+}
+
+/* ── Render Results ── */
+function diRenderResults(data) {
+  document.getElementById('di-results').style.display = 'block';
+
+  var summary = data.summary || {};
+  var areas = data.impacted_areas || [];
+  var tickets = data.ticket_impacts || [];
+  var timeline = data.timeline || {};
+
+  // Summary strip
+  var stripHtml = [
+    ['Total Tickets', summary.total_tickets || 0, '#343a40', 'white'],
+    ['Relevant', summary.relevant || 0, '#007cba', 'white'],
+    ['Critical', summary.critical || 0, '#dc3545', 'white'],
+    ['High', summary.high || 0, '#fd7e14', 'white'],
+    ['Medium', summary.medium || 0, '#ffc107', '#333'],
+    ['Low', summary.low || 0, '#28a745', 'white'],
+    ['Areas Impacted', summary.impacted_areas || 0, '#6f42c1', 'white'],
+  ].map(function(d) {
+    return '<div class="di-stat-card" style="background:' + d[2] + ';color:' + d[3] + ';">' +
+      '<div class="di-stat-number">' + d[1] + '</div>' +
+      '<div class="di-stat-label">' + d[0] + '</div></div>';
+  }).join('');
+  document.getElementById('di-summary-strip').innerHTML = stripHtml;
+
+  // Impacted areas
+  document.getElementById('di-area-count').textContent = areas.length;
+  var areasHtml = '';
+  var severityColors = { critical: '#dc3545', high: '#fd7e14', medium: '#ffc107', low: '#28a745' };
+  for (var a = 0; a < areas.length; a++) {
+    var area = areas[a];
+    var color = severityColors[area.severity] || '#6c757d';
+    areasHtml += '<div class="di-area-card">' +
+      '<div class="di-area-header">' +
+        '<span class="di-area-name">' + hEsc(area.area) + '</span>' +
+        '<span class="di-severity-badge" style="background:' + color + ';">' + area.severity + '</span>' +
+      '</div>' +
+      '<div class="di-area-meta">' + area.ticket_count + ' ticket(s) affect this area</div>' +
+      '<div class="di-area-rec">' + hEsc(area.recommendation || '') + '</div>' +
+      '<div class="di-area-tickets">' +
+        (area.tickets || []).map(function(t) {
+          return '<span class="di-ticket-chip">' + hEsc(t.key) + '</span>';
+        }).join('') +
+      '</div>' +
+    '</div>';
+  }
+  document.getElementById('di-areas-list').innerHTML = areasHtml || '<div style="color:#888;padding:16px;text-align:center;">No impacted areas detected.</div>';
+
+  // Ticket impacts
+  document.getElementById('di-ticket-count').textContent = tickets.length;
+  var ticketsHtml = '';
+  for (var t = 0; t < tickets.length; t++) {
+    var tk = tickets[t];
+    var tColor = severityColors[tk.severity] || '#6c757d';
+    ticketsHtml += '<div class="di-ticket-card">' +
+      '<div class="di-ticket-header">' +
+        '<span class="di-ticket-key">' + hEsc(tk.key) + '</span>' +
+        '<span class="di-severity-badge" style="background:' + tColor + ';">' + tk.severity + '</span>' +
+        '<span class="di-ticket-product">' + hEsc(tk.product || '') + '</span>' +
+        (tk.fix_version ? '<span class="di-ticket-version">' + hEsc(tk.fix_version) + '</span>' : '') +
+      '</div>' +
+      '<div class="di-ticket-summary">' + hEsc(tk.summary || '') + '</div>' +
+      '<div class="di-ticket-areas">' +
+        (tk.impacted_areas || []).map(function(ia) {
+          return '<span class="di-area-chip">' + hEsc(ia) + '</span>';
+        }).join('') +
+      '</div>' +
+      '<div class="di-ticket-recs">' +
+        (tk.recommendations || []).map(function(r) {
+          return '<div class="di-rec-item">' + hEsc(r) + '</div>';
+        }).join('') +
+      '</div>' +
+    '</div>';
+  }
+  document.getElementById('di-tickets-list').innerHTML = ticketsHtml || '<div style="color:#888;padding:16px;text-align:center;">No ticket impacts found.</div>';
+
+  // Timeline
+  var timelineHtml = '';
+  var versions = Object.keys(timeline).sort();
+  for (var v = 0; v < versions.length; v++) {
+    var ver = versions[v];
+    var verTickets = timeline[ver];
+    timelineHtml += '<div class="di-timeline-group">' +
+      '<div class="di-timeline-version">' + hEsc(ver) + ' <span style="font-weight:400;color:#888;">(' + verTickets.length + ' tickets)</span></div>' +
+      '<div class="di-timeline-items">';
+    for (var vi = 0; vi < verTickets.length; vi++) {
+      var vt = verTickets[vi];
+      var vtColor = severityColors[vt.severity] || '#6c757d';
+      timelineHtml += '<div class="di-timeline-item">' +
+        '<span class="di-severity-dot" style="background:' + vtColor + ';"></span>' +
+        '<span class="di-timeline-key">' + hEsc(vt.key) + '</span>' +
+        '<span class="di-timeline-summary">' + hEsc(vt.summary || '') + '</span>' +
+      '</div>';
+    }
+    timelineHtml += '</div></div>';
+  }
+  document.getElementById('di-timeline').innerHTML = timelineHtml || '<div style="color:#888;padding:16px;text-align:center;">No release timeline data.</div>';
+}
+
+/* ── Clear ── */
+function diClear() {
+  _diSessionData = [];
+  _diResults = null;
+  document.getElementById('di-file-input').value = '';
+  document.getElementById('di-file-count').style.display = 'none';
+  document.getElementById('di-run-btn').disabled = true;
+  document.getElementById('di-results').style.display = 'none';
+}
+
+/* ── Export CSV ── */
+function diExportCSV() {
+  if (!_diResults || !_diResults.ticket_impacts) return;
+  var rows = ['Ticket Key,Summary,Product,Fix Version,Severity,Impacted Areas,Recommendations'];
+  _diResults.ticket_impacts.forEach(function(t) {
+    rows.push([
+      csvCell(t.key),
+      csvCell(t.summary),
+      csvCell(t.product),
+      csvCell(t.fix_version),
+      csvCell(t.severity),
+      csvCell((t.impacted_areas || []).join('; ')),
+      csvCell((t.recommendations || []).join('; ')),
+    ].join(','));
+  });
+  var blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+  saveAs(blob, 'doc-impact-assessment.csv');
+}
+
 
 /* ============================================================
    AI ASSISTANT — Chat with Local Ollama LLM
