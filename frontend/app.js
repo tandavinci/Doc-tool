@@ -4647,7 +4647,11 @@ function aiSendMessage() {
     return;
   }
 
-  window.api.aiChat(message, '').then(function(response) {
+  // Gather context from the context area if it has content
+  var contextInput = document.getElementById('ai-context-input');
+  var context = (contextInput && contextInput.value) ? contextInput.value.trim() : '';
+
+  window.api.aiChat(message, context).then(function(response) {
     aiHideTyping();
     _aiIsLoading = false;
     aiUpdateSendButton();
@@ -4793,13 +4797,26 @@ function aiNewChat() {
     setTimeout(function() {
       container.innerHTML = '<div class="ai-chat-welcome" id="ai-chat-welcome">' +
         '<div class="ai-chat-welcome-icon">🤖</div>' +
-        '<h3>Infor ID Standards Assistant</h3>' +
-        '<p>I can help you write, edit, review, and plan documentation that complies with Infor Information Development standards.</p>' +
-        '<div class="ai-chat-suggestions">' +
-          '<button class="ai-suggestion-btn" onclick="aiUseSuggestion(\'Review this paragraph for Infor writing standards compliance\')">📝 Review content for compliance</button>' +
-          '<button class="ai-suggestion-btn" onclick="aiUseSuggestion(\'Rewrite this in active voice following Infor style guidelines\')">✏️ Rewrite in active voice</button>' +
-          '<button class="ai-suggestion-btn" onclick="aiUseSuggestion(\'What topic type (concept, task, or reference) should I use for this content?\')">📋 Suggest topic type</button>' +
-          '<button class="ai-suggestion-btn" onclick="aiUseSuggestion(\'Help me plan the structure for a user guide about\')">📖 Plan documentation structure</button>' +
+        '<h3>Infor Documentation Assistant</h3>' +
+        '<p>I can help you search, write, edit, review, plan, and generate documentation for any Infor product. Paste content below or pick a task to get started.</p>' +
+        '<div class="ai-chat-categories">' +
+          '<div class="ai-cat-group"><div class="ai-cat-label">🔍 Search & Find</div><div class="ai-cat-buttons">' +
+            '<button class="ai-suggestion-btn" onclick="aiUseSuggestion(\'Find documentation about [feature/topic] in Infor [product name]\')">Find docs for a product</button>' +
+            '<button class="ai-suggestion-btn" onclick="aiUseSuggestion(\'Compare how [feature] is documented in [Product A] vs [Product B]\')">Compare across products</button>' +
+          '</div></div>' +
+          '<div class="ai-cat-group"><div class="ai-cat-label">✏️ Write & Create</div><div class="ai-cat-buttons">' +
+            '<button class="ai-suggestion-btn" onclick="aiUseSuggestion(\'Create a documentation outline for a user guide about\')">Create doc outline</button>' +
+            '<button class="ai-suggestion-btn" onclick="aiUseSuggestion(\'Generate a FAQ from this documentation content:\\n\\n[paste content here]\')">Generate FAQ</button>' +
+            '<button class="ai-suggestion-btn" onclick="aiUseSuggestion(\'Create troubleshooting steps for this issue:\\n\\n[describe the issue]\')">Create troubleshooting</button>' +
+          '</div></div>' +
+          '<div class="ai-cat-group"><div class="ai-cat-label">📝 Review & Improve</div><div class="ai-cat-buttons">' +
+            '<button class="ai-suggestion-btn" onclick="aiUseSuggestion(\'Review this content for Infor writing standards compliance:\\n\\n[paste content here]\')">Review for compliance</button>' +
+            '<button class="ai-suggestion-btn" onclick="aiUseSuggestion(\'Rewrite this for clarity and readability:\\n\\n[paste content here]\')">Rewrite for clarity</button>' +
+          '</div></div>' +
+          '<div class="ai-cat-group"><div class="ai-cat-label">🔄 Transform & Explain</div><div class="ai-cat-buttons">' +
+            '<button class="ai-suggestion-btn" onclick="aiUseSuggestion(\'Summarize this documentation into key points:\\n\\n[paste content here]\')">Summarize content</button>' +
+            '<button class="ai-suggestion-btn" onclick="aiUseSuggestion(\'Extract the procedure from this content and format as numbered steps:\\n\\n[paste content here]\')">Extract procedure</button>' +
+          '</div></div>' +
         '</div>' +
       '</div>';
       container.style.opacity = '1';
@@ -4816,6 +4833,37 @@ function aiNewChat() {
     var input = document.getElementById('ai-chat-input');
     if (input) input.focus();
   }, 200);
+}
+
+/**
+ * Toggle the documentation context input area visibility.
+ */
+function aiToggleContext() {
+  var area = document.getElementById('ai-context-area');
+  var toggle = document.getElementById('ai-context-toggle');
+  if (!area) return;
+
+  var visible = area.style.display !== 'none';
+  area.style.display = visible ? 'none' : 'block';
+  if (toggle) toggle.classList.toggle('active', !visible);
+
+  // Focus the context textarea when opening
+  if (!visible) {
+    var input = document.getElementById('ai-context-input');
+    if (input) setTimeout(function() { input.focus(); }, 100);
+  }
+}
+
+/**
+ * Clear the documentation context and hide the area.
+ */
+function aiClearContext() {
+  var input = document.getElementById('ai-context-input');
+  var area = document.getElementById('ai-context-area');
+  var toggle = document.getElementById('ai-context-toggle');
+  if (input) input.value = '';
+  if (area) area.style.display = 'none';
+  if (toggle) toggle.classList.remove('active');
 }
 
 /**

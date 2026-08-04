@@ -841,7 +841,7 @@
     <div class="ai-chat-header">
       <div class="ai-chat-header-left">
         <h2 style="margin:0;font-size:16px;">AI Assistant</h2>
-        <span class="ai-chat-subtitle">Infor ID Standards Expert (Ollama local)</span>
+        <span class="ai-chat-subtitle">Infor Documentation Expert (Ollama local)</span>
       </div>
       <div class="ai-chat-header-right">
         <span id="ai-status-indicator" class="ai-status-dot ai-status-unknown" title="Checking..."></span>
@@ -854,22 +854,83 @@
     <div class="ai-chat-messages" id="ai-chat-messages">
       <div class="ai-chat-welcome" id="ai-chat-welcome">
         <div class="ai-chat-welcome-icon">🤖</div>
-        <h3>Infor ID Standards Assistant</h3>
-        <p>I can help you write, edit, review, and plan documentation that complies with Infor Information Development standards.</p>
-        <div class="ai-chat-suggestions">
-          <button class="ai-suggestion-btn" onclick="aiUseSuggestion('Review this paragraph for Infor writing standards compliance')">📝 Review content for compliance</button>
-          <button class="ai-suggestion-btn" onclick="aiUseSuggestion('Rewrite this in active voice following Infor style guidelines')">✏️ Rewrite in active voice</button>
-          <button class="ai-suggestion-btn" onclick="aiUseSuggestion('What topic type (concept, task, or reference) should I use for this content?')">📋 Suggest topic type</button>
-          <button class="ai-suggestion-btn" onclick="aiUseSuggestion('Help me plan the structure for a user guide about')">📖 Plan documentation structure</button>
+        <h3>Infor Documentation Assistant</h3>
+        <p>I can help you search, write, edit, review, plan, and generate documentation for any Infor product. Paste content below or pick a task to get started.</p>
+
+        <div class="ai-chat-categories">
+
+          <div class="ai-cat-group">
+            <div class="ai-cat-label">🔍 Search & Find</div>
+            <div class="ai-cat-buttons">
+              <button class="ai-suggestion-btn" onclick="aiUseSuggestion('Find documentation about [feature/topic] in Infor [product name]')">Find docs for a product</button>
+              <button class="ai-suggestion-btn" onclick="aiUseSuggestion('What is the correct documentation library and version for [product]?')">Identify doc library</button>
+              <button class="ai-suggestion-btn" onclick="aiUseSuggestion('Compare how [feature] is documented in [Product A] vs [Product B]')">Compare across products</button>
+            </div>
+          </div>
+
+          <div class="ai-cat-group">
+            <div class="ai-cat-label">✏️ Write & Create</div>
+            <div class="ai-cat-buttons">
+              <button class="ai-suggestion-btn" onclick="aiUseSuggestion('Create a documentation outline for a user guide about')">Create doc outline</button>
+              <button class="ai-suggestion-btn" onclick="aiUseSuggestion('Generate a FAQ from this documentation content:\n\n[paste content here]')">Generate FAQ</button>
+              <button class="ai-suggestion-btn" onclick="aiUseSuggestion('Create troubleshooting steps for this issue:\n\n[describe the issue]')">Create troubleshooting</button>
+              <button class="ai-suggestion-btn" onclick="aiUseSuggestion('Write a release note summary for these changes:\n\n[paste changes here]')">Write release notes</button>
+              <button class="ai-suggestion-btn" onclick="aiUseSuggestion('Generate alternative wording for this warning/note:\n\n[paste text here]')">Reword warning/note</button>
+            </div>
+          </div>
+
+          <div class="ai-cat-group">
+            <div class="ai-cat-label">📝 Review & Improve</div>
+            <div class="ai-cat-buttons">
+              <button class="ai-suggestion-btn" onclick="aiUseSuggestion('Review this content for Infor writing standards compliance:\n\n[paste content here]')">Review for compliance</button>
+              <button class="ai-suggestion-btn" onclick="aiUseSuggestion('Rewrite this for clarity and readability:\n\n[paste content here]')">Rewrite for clarity</button>
+              <button class="ai-suggestion-btn" onclick="aiUseSuggestion('Improve the grammar, style, and technical accuracy of this draft:\n\n[paste content here]')">Improve draft</button>
+              <button class="ai-suggestion-btn" onclick="aiUseSuggestion('Identify documentation gaps in this content and suggest missing topics:\n\n[paste content here]')">Find doc gaps</button>
+            </div>
+          </div>
+
+          <div class="ai-cat-group">
+            <div class="ai-cat-label">🔄 Transform & Explain</div>
+            <div class="ai-cat-buttons">
+              <button class="ai-suggestion-btn" onclick="aiUseSuggestion('Summarize this documentation into key points:\n\n[paste content here]')">Summarize content</button>
+              <button class="ai-suggestion-btn" onclick="aiUseSuggestion('Explain this technical concept in simpler language for end users:\n\n[paste content here]')">Simplify for users</button>
+              <button class="ai-suggestion-btn" onclick="aiUseSuggestion('Extract the procedure from this content and format as numbered steps:\n\n[paste content here]')">Extract procedure</button>
+              <button class="ai-suggestion-btn" onclick="aiUseSuggestion('Explain this API/configuration in plain language:\n\n[paste content here]')">Explain API/config</button>
+              <button class="ai-suggestion-btn" onclick="aiUseSuggestion('Convert this technical content into customer-facing language:\n\n[paste content here]')">Make customer-facing</button>
+            </div>
+          </div>
+
+          <div class="ai-cat-group">
+            <div class="ai-cat-label">🏗️ Organize & Structure</div>
+            <div class="ai-cat-buttons">
+              <button class="ai-suggestion-btn" onclick="aiUseSuggestion('Suggest the best topic type (concept, task, or reference) for this content:\n\n[paste content here]')">Suggest topic type</button>
+              <button class="ai-suggestion-btn" onclick="aiUseSuggestion('Suggest metadata, keywords, and search terms for this topic:\n\n[paste content here]')">Suggest metadata</button>
+              <button class="ai-suggestion-btn" onclick="aiUseSuggestion('What related topics should be cross-referenced with this content?\n\n[paste content here]')">Find cross-references</button>
+              <button class="ai-suggestion-btn" onclick="aiUseSuggestion('Help me organize these topics into a logical information architecture:\n\n[list topics here]')">Plan IA structure</button>
+            </div>
+          </div>
+
         </div>
       </div>
+    </div>
+
+    <!-- Context Input Area (paste documentation for AI to work with) -->
+    <div class="ai-context-area" id="ai-context-area" style="display:none;">
+      <div class="ai-context-header">
+        <span class="ai-context-label">📄 Documentation Context</span>
+        <button class="btn-sm btn-grey" onclick="aiClearContext()" title="Clear context">✕ Clear</button>
+      </div>
+      <textarea id="ai-context-input" class="ai-context-input"
+                placeholder="Paste documentation content here. The AI will use this as context for your questions..."
+                rows="4"></textarea>
     </div>
 
     <!-- Input Area -->
     <div class="ai-chat-input-area">
       <div class="ai-chat-input-row">
+        <button class="ai-context-toggle" id="ai-context-toggle" onclick="aiToggleContext()" title="Attach documentation context">📎</button>
         <textarea id="ai-chat-input" class="ai-chat-input"
-                  placeholder="Ask about Infor writing standards, request edits, or paste content for review..."
+                  placeholder="Ask about Infor docs, paste content for review, or pick a task above..."
                   rows="2"
                   onkeydown="aiInputKeyDown(event)"></textarea>
         <button id="ai-send-btn" class="ai-send-btn" onclick="aiSendMessage()" title="Send message (Enter)">
@@ -877,7 +938,7 @@
         </button>
       </div>
       <div class="ai-chat-input-hint">
-        <span>Enter to send · Shift+Enter for new line · Powered by local Ollama</span>
+        <span>Enter to send · Shift+Enter for new line · 📎 to attach docs context · Powered by local Ollama</span>
       </div>
     </div>
 
