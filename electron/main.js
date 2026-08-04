@@ -125,6 +125,7 @@ function spawnBackend() {
 
 const REQUEST_TIMEOUT_MS = 30000; // 30 second timeout for backend requests
 const MARKITDOWN_TIMEOUT_MS = 120000; // 120 second timeout for file conversions
+const AI_CHAT_TIMEOUT_MS = 300000; // 300 second (5 min) timeout for AI chat (local LLM can be slow)
 const DEBUG = process.argv.includes('--dev');
 
 function sendToBackend(action, payload) {
@@ -138,8 +139,10 @@ function sendToBackend(action, payload) {
     const id = `req-${String(requestId).padStart(4, '0')}`;
     const request = { id, action, payload };
 
-    // Use longer timeout for markitdown conversions (large file processing) and AI chat (LLM latency)
-    const timeoutMs = (action === 'markitdown' || action === 'ai_chat') ? MARKITDOWN_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
+    // Use longer timeout for markitdown conversions and AI chat (local LLM latency)
+    const timeoutMs = action === 'ai_chat' ? AI_CHAT_TIMEOUT_MS
+      : (action === 'markitdown') ? MARKITDOWN_TIMEOUT_MS
+      : REQUEST_TIMEOUT_MS;
 
     // Timeout protection for stalled requests
     const timer = setTimeout(() => {

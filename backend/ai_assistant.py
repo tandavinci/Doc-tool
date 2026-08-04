@@ -31,7 +31,7 @@ OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2:latest")
 OLLAMA_API_KEY = "ollama"  # Dummy key required by the SDK
 
 # Maximum conversation history to retain (in messages)
-MAX_HISTORY_MESSAGES = 20
+MAX_HISTORY_MESSAGES = 10
 
 # =============================================================================
 # SYSTEM PROMPT — Infor ID Standards Knowledge Base
@@ -675,7 +675,7 @@ class AIAssistant:
                 model=OLLAMA_MODEL,
                 messages=messages,
                 temperature=0.2,
-                max_tokens=2048,
+                max_tokens=1024,
             )
 
             assistant_reply = completion.choices[0].message.content or ""
@@ -736,7 +736,7 @@ class AIAssistant:
                 model=OLLAMA_MODEL,
                 messages=messages,
                 temperature=0.2,
-                max_tokens=2048,
+                max_tokens=1024,
                 stream=True,
             )
 
