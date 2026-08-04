@@ -55,7 +55,7 @@ contextBridge.exposeInMainWorld('api', {
   quickReview: (text) => ipcRenderer.invoke('quick-review', text),
 
   /**
-   * Run documentation impact assessment from Chancellor session data.
+   * Run documentation impact assessment from validation session data.
    * @param {Array} sessionData - Array of validation JSON objects
    * @returns {Promise<object>} - { success, data: { summary, impacted_areas, ticket_impacts, timeline } }
    */

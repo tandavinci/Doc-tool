@@ -1,11 +1,11 @@
 """
 Documentation Impact Assessment Engine.
 
-Parses Chancellor/Cursitor validation session output (JSON files) and
-identifies which documentation topics may need updating based on product
-changes tracked in Jira tickets.
+Parses validation session output (JSON files) and identifies which
+documentation topics may need updating based on product changes
+tracked in Jira tickets.
 
-Input: List of validation JSON objects (from Chancellor sessions)
+Input: List of validation JSON objects (from Doc Impact sessions)
 Output: Impact assessment with categorized topics, severity, and recommendations
 
 No credentials needed — works entirely from imported JSON data.
@@ -85,13 +85,13 @@ INFOR_PRODUCTS = [
 
 
 # =============================================================================
-# PARSING CHANCELLOR SESSION DATA
+# PARSING VALIDATION SESSION DATA
 # =============================================================================
 
 def parse_validation_json(data):
-    """Parse a single Chancellor validation JSON object.
+    """Parse a single validation JSON object.
 
-    Handles both the raw Cursitor output format and the Chancellor-assessed format.
+    Handles multiple validation output formats.
 
     Returns normalized ticket dict with:
     - key, summary, status, priority, fix_version
@@ -103,7 +103,7 @@ def parse_validation_json(data):
     if not data or not isinstance(data, dict):
         return None
 
-    # Handle nested structures (Chancellor wraps Cursitor output)
+    # Handle nested structures
     ticket_data = data.get("ticket", data)
     validation = data.get("validation", data.get("field_validations", {}))
 
@@ -117,7 +117,7 @@ def parse_validation_json(data):
                    ticket_data.get("fields", {}).get("description", "") or
                    data.get("description", ""))
 
-    # Extract change-related fields (Chancellor custom fields)
+    # Extract change-related fields
     overview = (ticket_data.get("overview_of_change") or
                 ticket_data.get("fields", {}).get("overview_of_change", "") or
                 data.get("overview_of_change", ""))
@@ -139,7 +139,7 @@ def parse_validation_json(data):
     elif isinstance(fv, str):
         fix_version = fv
 
-    # Extract verdicts (Chancellor assessment)
+    # Extract verdicts (assessment results)
     relevance = data.get("relevance_verdict") or data.get("relevance", "")
     sufficiency = data.get("sufficiency_verdict") or data.get("sufficiency", "")
 
@@ -425,7 +425,7 @@ def _area_recommendation(area, ticket_count):
 # =============================================================================
 
 def analyze_session(session_data):
-    """Main entry point: analyze a Chancellor session.
+    """Main entry point: analyze a Doc Impact session.
 
     Args:
         session_data: list of raw validation JSON objects (as parsed from files)
