@@ -48,6 +48,7 @@
   <span class="tab"        onclick="openTab('quickReview',event)">Quick Review</span>
   <span class="tab"        onclick="openTab('docImpact',event)">Doc Impact</span>
   <span class="tab"        onclick="openTab('aiAssistant',event)">AI Assistant</span>
+  <span class="tab"        onclick="openTab('jiraDashboard',event)">JIRA</span>
 </div>
 
 <!-- ═══════════════════════════════════════════════
@@ -978,6 +979,892 @@
 
   </div>
 </div>
+
+<!-- ═══════════════════════════════════════════════
+     TAB 9: JIRA DASHBOARD
+     ═══════════════════════════════════════════════ -->
+<div id="jiraDashboard" class="section" style="display:none">
+  <h2>JIRA Dashboard</h2>
+  <p style="font-size:13px;color:#666;margin-top:0;margin-bottom:14px;">
+    View and process your assigned JIRA tickets. Summarize, assess doc impact, check missing fields, and generate first drafts.
+  </p>
+
+  <!-- Configuration Panel -->
+  <div id="jira-config-panel" style="margin-bottom:18px;padding:16px;background:#f8fafc;border:1px solid #dde3ea;border-radius:8px;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+      <span style="font-weight:600;font-size:13px;color:#1a2332;">JIRA Connection</span>
+      <span id="jira-conn-status" style="font-size:11px;padding:2px 8px;border-radius:10px;background:#fee2e2;color:#dc2626;">Not Connected</span>
+      <button class="btn-sm btn-grey" onclick="jiraToggleConfig()" style="margin-left:auto;" id="jira-config-toggle-btn">Configure</button>
+    </div>
+    <div id="jira-config-form" style="display:none;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+        <div>
+          <label style="font-size:11px;font-weight:600;color:#555;display:block;margin-bottom:3px;">JIRA Base URL</label>
+          <input type="text" id="jira-cfg-url" placeholder="https://infor.atlassian.net" value="https://infor.atlassian.net" style="width:100%;padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:12px;box-sizing:border-box;">
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:600;color:#555;display:block;margin-bottom:3px;">Project Key (optional)</label>
+          <input type="text" id="jira-cfg-project" placeholder="TECDOC" value="TECDOC" style="width:100%;padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:12px;box-sizing:border-box;">
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:600;color:#555;display:block;margin-bottom:3px;">Email</label>
+          <input type="email" id="jira-cfg-email" placeholder="you@infor.com" style="width:100%;padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:12px;box-sizing:border-box;">
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:600;color:#555;display:block;margin-bottom:3px;">API Token</label>
+          <input type="password" id="jira-cfg-token" placeholder="API token" style="width:100%;padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:12px;box-sizing:border-box;">
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button onclick="jiraSaveConfig()" style="padding:6px 16px;background:#007cba;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer;">Connect</button>
+        <button class="btn-grey" onclick="jiraTestConnection()" style="padding:6px 16px;font-size:12px;">Test Connection</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filters & Fetch -->
+  <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
+    <select id="jira-status-filter" style="padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:12px;">
+      <option value="">All Statuses</option>
+      <option value="open">Open</option>
+      <option value="in progress">In Progress</option>
+      <option value="to do">To Do</option>
+      <option value="done">Done</option>
+    </select>
+    <input type="text" id="jira-project-filter" placeholder="Project key (optional)" value="TECDOC" style="padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:12px;width:140px;">
+    <button onclick="jiraFetchIssues()" id="jira-fetch-btn" style="padding:6px 16px;background:#007cba;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer;">🔄 Fetch My Issues</button>
+    <div id="jira-loading" style="display:none;">
+      <span style="display:inline-block;width:14px;height:14px;border:2px solid #ddd;border-top-color:#007cba;border-radius:50%;animation:md-spin 0.8s linear infinite;vertical-align:middle;"></span>
+      <span style="font-size:12px;color:#666;margin-left:4px;">Loading...</span>
+    </div>
+    <span id="jira-issue-count" style="font-size:12px;color:#007cba;font-weight:600;margin-left:auto;display:none;"></span>
+  </div>
+
+  <!-- Issues List -->
+  <div id="jira-issues-list" style="display:none;">
+    <div id="jira-issues-container"></div>
+  </div>
+
+  <!-- Empty State -->
+  <div id="jira-empty-state" style="text-align:center;padding:40px;color:#666;">
+    <div style="font-size:32px;margin-bottom:12px;">📋</div>
+    <p style="margin:0;font-size:14px;font-weight:500;">No issues loaded</p>
+    <p style="margin:6px 0 0;font-size:12px;">Configure your JIRA connection and click "Fetch My Issues" to get started.</p>
+  </div>
+
+  <!-- Action Result Panel (shows summarize/draft/impact/missing results) -->
+  <div id="jira-result-panel" style="display:none;margin-top:18px;padding:16px;background:#f8fafc;border:1px solid #dde3ea;border-radius:8px;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+      <span id="jira-result-title" style="font-weight:600;font-size:14px;color:#1a2332;"></span>
+      <span id="jira-result-badge" style="font-size:11px;padding:2px 8px;border-radius:10px;background:#e8f4fd;color:#007cba;font-weight:600;"></span>
+      <button class="btn-sm btn-grey" onclick="jiraCloseResult()" style="margin-left:auto;">✕ Close</button>
+      <button class="btn-sm" style="background:#007cba;color:#fff;" onclick="jiraCopyResult()">📋 Copy</button>
+    </div>
+    <div id="jira-result-content" style="font-size:13px;line-height:1.7;max-height:500px;overflow-y:auto;white-space:pre-wrap;font-family:'Segoe UI',sans-serif;"></div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       JIRA TICKET ANALYST — Chat-Based Readiness Analysis
+       ═══════════════════════════════════════════════ -->
+  <div id="jira-analyst-section" style="margin-top:24px;border-top:2px solid #e2e8f0;padding-top:20px;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+      <h3 style="margin:0;font-size:15px;color:#1a2332;">🔬 TECDOC Ticket Analyst</h3>
+      <span style="font-size:11px;color:#666;">Assess documentation readiness for any TECDOC ticket</span>
+    </div>
+
+    <!-- Quick Analyze Input -->
+    <div class="ja-input-area">
+      <div class="ja-input-row">
+        <input type="text" id="ja-ticket-input" class="ja-ticket-input"
+               placeholder="Enter TECDOC ticket key (e.g., TECDOC-1234)..."
+               onkeydown="if(event.key==='Enter')jaAnalyzeTicket()">
+        <button id="ja-analyze-btn" class="ja-analyze-btn" onclick="jaAnalyzeTicket()">
+          🔬 Analyze Readiness
+        </button>
+      </div>
+      <div class="ja-input-hint">
+        Enter a ticket key and press Enter to run full documentation readiness analysis
+      </div>
+    </div>
+
+    <!-- Chat Area -->
+    <div id="ja-chat-container" class="ja-chat-container" style="display:none;">
+      <!-- Chat Header -->
+      <div class="ja-chat-header">
+        <div class="ja-chat-header-left">
+          <span id="ja-active-ticket" class="ja-active-ticket"></span>
+          <span id="ja-readiness-badge" class="ja-readiness-badge"></span>
+        </div>
+        <div class="ja-chat-header-right">
+          <button class="btn-sm btn-grey" onclick="jaCopyAnalysis()" title="Copy analysis">📋 Copy</button>
+          <button class="btn-sm btn-grey" onclick="jaClearChat()" title="Clear and start over">✕ Clear</button>
+        </div>
+      </div>
+
+      <!-- Chat Messages -->
+      <div id="ja-chat-messages" class="ja-chat-messages"></div>
+
+      <!-- Follow-up Input -->
+      <div class="ja-followup-area">
+        <div class="ja-quick-actions">
+          <button class="ja-quick-btn" onclick="jaAskFollowup('What are the specific corrections needed?')">Corrections</button>
+          <button class="ja-quick-btn" onclick="jaAskFollowup('Summarize this ticket for a writer')">Summarize</button>
+          <button class="ja-quick-btn" onclick="jaAskFollowup('What reference materials are missing?')">Missing refs</button>
+          <button class="ja-quick-btn" onclick="jaAskFollowup('Is the description sufficient to write documentation?')">Check description</button>
+        </div>
+        <div class="ja-followup-row">
+          <input type="text" id="ja-followup-input" class="ja-followup-input"
+                 placeholder="Ask a follow-up question about this ticket..."
+                 onkeydown="if(event.key==='Enter')jaSendFollowup()">
+          <button class="ja-send-btn" onclick="jaSendFollowup()" title="Send">➤</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Loading State -->
+    <div id="ja-loading" class="ja-loading" style="display:none;">
+      <span class="ja-spinner"></span>
+      <span>Analyzing ticket...</span>
+    </div>
+
+    <!-- Error State -->
+    <div id="ja-error" class="ja-error" style="display:none;"></div>
+  </div>
+</div>
+
+<!-- JIRA Dashboard Styles -->
+<style>
+  .jira-issue-card {
+    border:1px solid #e2e8f0; border-radius:8px; margin-bottom:10px;
+    background:#fff; transition:box-shadow 0.15s;
+  }
+  .jira-issue-card:hover { box-shadow:0 2px 8px rgba(0,0,0,0.08); }
+  .jira-issue-header {
+    display:flex; align-items:center; gap:10px; padding:12px 16px;
+    cursor:pointer; user-select:none;
+  }
+  .jira-issue-header:hover { background:#f8fafc; border-radius:8px; }
+  .jira-key { font-weight:700; font-size:12px; color:#007cba; min-width:90px; }
+  .jira-summary { flex:1; font-size:13px; color:#1a2332; font-weight:500; }
+  .jira-meta { display:flex; gap:8px; align-items:center; }
+  .jira-badge {
+    font-size:10px; padding:2px 7px; border-radius:10px; font-weight:600;
+  }
+  .jira-badge-status { background:#e8f4fd; color:#007cba; }
+  .jira-badge-priority-Highest, .jira-badge-priority-Critical { background:#fee2e2; color:#dc2626; }
+  .jira-badge-priority-High { background:#ffedd5; color:#ea580c; }
+  .jira-badge-priority-Medium { background:#fef9c3; color:#a16207; }
+  .jira-badge-priority-Low { background:#dcfce7; color:#16a34a; }
+  .jira-badge-priority-Lowest { background:#f1f5f9; color:#64748b; }
+  .jira-badge-type { background:#f3e8ff; color:#7c3aed; }
+  .jira-expand-icon { font-size:12px; color:#999; transition:transform 0.2s; }
+  .jira-issue-card.expanded .jira-expand-icon { transform:rotate(90deg); }
+  .jira-issue-body {
+    display:none; padding:0 16px 14px; border-top:1px solid #f1f5f9;
+  }
+  .jira-issue-card.expanded .jira-issue-body { display:block; }
+  .jira-desc-preview {
+    font-size:12px; color:#555; line-height:1.6; margin:10px 0;
+    max-height:120px; overflow-y:auto; white-space:pre-wrap;
+    padding:10px; background:#f8fafc; border-radius:6px; border:1px solid #e9ecef;
+  }
+  .jira-actions {
+    display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;
+  }
+  .jira-action-btn {
+    padding:6px 12px; font-size:11px; font-weight:600; border-radius:5px;
+    cursor:pointer; border:1px solid #ddd; background:#fff; color:#333;
+    transition:all 0.15s;
+  }
+  .jira-action-btn:hover { background:#007cba; color:#fff; border-color:#007cba; }
+  .jira-action-btn:disabled { opacity:0.5; cursor:not-allowed; }
+  .jira-action-btn.loading { opacity:0.7; pointer-events:none; }
+  .jira-btn-primary { background:#007cba; color:#fff; border-color:#007cba; }
+  .jira-btn-primary:hover { background:#005f8f; border-color:#005f8f; }
+  .jira-action-btn.loading::after {
+    content:" ⏳"; font-size:10px;
+  }
+  .jira-info-row {
+    display:flex; gap:16px; flex-wrap:wrap; margin-top:8px; font-size:11px; color:#666;
+  }
+  .jira-info-item { display:flex; align-items:center; gap:4px; }
+  .jira-info-label { font-weight:600; color:#555; }
+  .jira-md-output { font-size:13px; line-height:1.7; color:#333; }
+  .jira-md-output h2, .jira-md-output h3, .jira-md-output h4 { color:#1a2332; }
+  .jira-md-output hr { border:none; border-top:1px solid #e2e8f0; margin:14px 0; }
+  .jira-md-output strong { color:#1a2332; }
+  .jira-md-output code { background:#f1f5f9; padding:1px 4px; border-radius:3px; font-size:12px; }
+</style>
+
+<!-- JIRA Ticket Analyst Styles -->
+<style>
+  .ja-input-area { margin-bottom:16px; }
+  .ja-input-row {
+    display:flex; gap:10px; align-items:center;
+  }
+  .ja-ticket-input {
+    flex:1; padding:10px 14px; border:1px solid #dde3ea; border-radius:6px;
+    font-size:13px; font-family:'Segoe UI',sans-serif; outline:none;
+    transition:border-color 0.2s;
+  }
+  .ja-ticket-input:focus { border-color:#007cba; box-shadow:0 0 0 2px rgba(0,124,186,0.1); }
+  .ja-analyze-btn {
+    padding:10px 20px; background:#007cba; color:#fff; border:none; border-radius:6px;
+    font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap; transition:background 0.15s;
+  }
+  .ja-analyze-btn:hover { background:#005f8a; }
+  .ja-input-hint { font-size:11px; color:#888; margin-top:6px; }
+
+  .ja-chat-container {
+    border:1px solid #dde3ea; border-radius:10px; background:#fff;
+    overflow:hidden;
+  }
+  .ja-chat-header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:12px 16px; background:#f8fafc; border-bottom:1px solid #e2e8f0;
+  }
+  .ja-chat-header-left { display:flex; align-items:center; gap:10px; }
+  .ja-chat-header-right { display:flex; gap:6px; }
+  .ja-active-ticket { font-weight:600; font-size:13px; color:#1a2332; }
+  .ja-readiness-badge {
+    font-size:11px; padding:3px 10px; border-radius:12px; font-weight:600;
+  }
+  .ja-badge-yes { background:#dcfce7; color:#16a34a; }
+  .ja-badge-no { background:#fee2e2; color:#dc2626; }
+  .ja-badge-conditional { background:#fef9c3; color:#a16207; }
+
+  .ja-chat-messages {
+    max-height:500px; overflow-y:auto; padding:16px;
+    min-height:200px;
+  }
+  .ja-message { margin-bottom:14px; }
+  .ja-message-bot { }
+  .ja-message-user {
+    display:flex; justify-content:flex-end;
+  }
+  .ja-message-user .ja-message-body {
+    background:#007cba; color:#fff; border-radius:12px 12px 2px 12px;
+    padding:10px 14px; max-width:70%; font-size:13px;
+  }
+  .ja-message-bot .ja-message-body {
+    background:#f8fafc; border:1px solid #e9ecef; border-radius:2px 12px 12px 12px;
+    padding:14px 16px; font-size:13px; line-height:1.7;
+  }
+  .ja-message-header {
+    display:flex; align-items:center; gap:8px; margin-bottom:6px;
+  }
+  .ja-bot-label { font-size:11px; font-weight:600; color:#007cba; }
+  .ja-msg-time { font-size:10px; color:#999; }
+  .ja-msg-error { background:#fee2e2 !important; border-color:#f5c6cb !important; color:#721c24; }
+
+  .ja-typing .ja-dots {
+    display:inline-block; animation:ja-blink 1.2s infinite;
+    font-size:18px; letter-spacing:2px; color:#999;
+  }
+  @keyframes ja-blink { 0%,50%{opacity:1}51%,100%{opacity:0.3} }
+
+  .ja-followup-area { padding:12px 16px; border-top:1px solid #e2e8f0; background:#f8fafc; }
+  .ja-quick-actions {
+    display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px;
+  }
+  .ja-quick-btn {
+    padding:5px 10px; font-size:11px; border:1px solid #dde3ea; border-radius:14px;
+    background:#fff; color:#555; cursor:pointer; transition:all 0.15s;
+  }
+  .ja-quick-btn:hover { background:#007cba; color:#fff; border-color:#007cba; }
+  .ja-followup-row { display:flex; gap:8px; }
+  .ja-followup-input {
+    flex:1; padding:9px 12px; border:1px solid #dde3ea; border-radius:6px;
+    font-size:12px; outline:none;
+  }
+  .ja-followup-input:focus { border-color:#007cba; }
+  .ja-send-btn {
+    width:36px; height:36px; border:none; border-radius:6px;
+    background:#007cba; color:#fff; font-size:14px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .ja-send-btn:hover { background:#005f8a; }
+
+  .ja-loading {
+    display:flex; align-items:center; gap:10px; padding:16px;
+    font-size:13px; color:#666;
+  }
+  .ja-spinner {
+    width:16px; height:16px; border:2px solid #ddd; border-top-color:#007cba;
+    border-radius:50%; animation:md-spin 0.8s linear infinite;
+  }
+  .ja-error {
+    background:#fee2e2; border:1px solid #f5c6cb; padding:12px 16px;
+    border-radius:6px; font-size:13px; color:#721c24; margin-top:10px;
+  }
+
+  /* Markdown rendering in chat */
+  .ja-md-h2 { font-size:14px; font-weight:700; color:#1a2332; margin:16px 0 8px; }
+  .ja-md-h3 { font-size:13px; font-weight:700; color:#1a2332; margin:14px 0 6px; }
+  .ja-md-hr { border:none; border-top:1px solid #e2e8f0; margin:12px 0; }
+  .ja-md-table {
+    width:100%; border-collapse:collapse; font-size:12px; margin:8px 0;
+  }
+  .ja-md-table td {
+    padding:6px 10px; border:1px solid #e2e8f0; vertical-align:top;
+  }
+  .ja-md-table tr:first-child td { font-weight:600; background:#f8fafc; }
+  .ja-md-list { margin:6px 0; padding-left:20px; }
+  .ja-md-list li { margin:3px 0; font-size:12px; line-height:1.5; }
+</style>
+
+<!-- JIRA Dashboard Script -->
+<script>
+// =============================================================================
+// JIRA DASHBOARD — Frontend Logic
+// =============================================================================
+
+var _jiraIssues = [];
+var _jiraActiveAction = null;
+
+function jiraToggleConfig() {
+  var form = document.getElementById('jira-config-form');
+  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+}
+
+async function jiraSaveConfig() {
+  var payload = {
+    baseUrl: document.getElementById('jira-cfg-url').value.trim(),
+    userEmail: document.getElementById('jira-cfg-email').value.trim(),
+    apiToken: document.getElementById('jira-cfg-token').value.trim(),
+    projectKey: document.getElementById('jira-cfg-project').value.trim(),
+  };
+  if (!payload.baseUrl || !payload.userEmail || !payload.apiToken) {
+    alert('Please fill in Base URL, Email, and API Token.');
+    return;
+  }
+  try {
+    var res = await window.api.jiraConfigure(payload);
+    if (res && res.success && res.data) {
+      jiraUpdateStatus(true, payload.userEmail);
+      document.getElementById('jira-config-form').style.display = 'none';
+    } else {
+      alert('Configuration failed: ' + (res.error ? res.error.message : 'Unknown error'));
+    }
+  } catch (e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+async function jiraTestConnection() {
+  try {
+    var res = await window.api.jiraStatus();
+    if (res && res.success && res.data && res.data.connected) {
+      jiraUpdateStatus(true, res.data.user || res.data.email);
+      alert('Connected successfully as: ' + (res.data.user || res.data.email));
+    } else {
+      var errMsg = (res && res.data && res.data.error) ? res.data.error : 'Connection failed';
+      jiraUpdateStatus(false);
+      alert('Connection failed: ' + errMsg);
+    }
+  } catch (e) {
+    jiraUpdateStatus(false);
+    alert('Test failed: ' + e.message);
+  }
+}
+
+function jiraUpdateStatus(connected, label) {
+  var el = document.getElementById('jira-conn-status');
+  if (connected) {
+    el.style.background = '#dcfce7';
+    el.style.color = '#16a34a';
+    el.textContent = 'Connected' + (label ? ' — ' + label : '');
+  } else {
+    el.style.background = '#fee2e2';
+    el.style.color = '#dc2626';
+    el.textContent = 'Not Connected';
+  }
+}
+
+async function jiraFetchIssues() {
+  var loading = document.getElementById('jira-loading');
+  var fetchBtn = document.getElementById('jira-fetch-btn');
+  loading.style.display = 'inline-flex';
+  fetchBtn.disabled = true;
+
+  var payload = {
+    projectKey: document.getElementById('jira-project-filter').value.trim(),
+    maxResults: 50,
+    statusFilter: document.getElementById('jira-status-filter').value,
+  };
+
+  try {
+    var res = await window.api.jiraFetch(payload);
+    if (res && res.success && res.data) {
+      _jiraIssues = res.data.issues || [];
+      jiraRenderIssues();
+      document.getElementById('jira-issue-count').textContent = _jiraIssues.length + ' of ' + res.data.total + ' issues';
+      document.getElementById('jira-issue-count').style.display = 'inline';
+      jiraUpdateStatus(true);
+    } else {
+      var errMsg = (res && res.error) ? res.error.message : 'Fetch failed';
+      alert('Failed to fetch issues: ' + errMsg);
+    }
+  } catch (e) {
+    alert('Error fetching issues: ' + e.message);
+  } finally {
+    loading.style.display = 'none';
+    fetchBtn.disabled = false;
+  }
+}
+
+function jiraRenderIssues() {
+  var container = document.getElementById('jira-issues-container');
+  var listEl = document.getElementById('jira-issues-list');
+  var emptyEl = document.getElementById('jira-empty-state');
+
+  if (!_jiraIssues.length) {
+    listEl.style.display = 'none';
+    emptyEl.style.display = 'block';
+    return;
+  }
+  emptyEl.style.display = 'none';
+  listEl.style.display = 'block';
+
+  var html = '';
+  for (var i = 0; i < _jiraIssues.length; i++) {
+    var issue = _jiraIssues[i];
+    var prClass = 'jira-badge-priority-' + (issue.priority || 'Medium').replace(/\s+/g, '');
+    var desc = issue.description || '[No description]';
+    var descPreview = desc.length > 300 ? desc.substring(0, 300) + '...' : desc;
+
+    html += '<div class="jira-issue-card" id="jira-card-' + i + '">';
+    html += '  <div class="jira-issue-header" onclick="jiraToggleCard(' + i + ')">';
+    html += '    <span class="jira-expand-icon">▶</span>';
+    html += '    <span class="jira-key">' + escHtml(issue.key) + '</span>';
+    html += '    <span class="jira-summary">' + escHtml(issue.summary) + '</span>';
+    html += '    <div class="jira-meta">';
+    html += '      <span class="jira-badge jira-badge-type">' + escHtml(issue.issue_type) + '</span>';
+    html += '      <span class="jira-badge ' + prClass + '">' + escHtml(issue.priority) + '</span>';
+    html += '      <span class="jira-badge jira-badge-status">' + escHtml(issue.status) + '</span>';
+    html += '    </div>';
+    html += '  </div>';
+    html += '  <div class="jira-issue-body">';
+    html += '    <div class="jira-info-row">';
+    if (issue.fix_versions && issue.fix_versions.length) {
+      html += '      <span class="jira-info-item"><span class="jira-info-label">Version:</span> ' + escHtml(issue.fix_versions.join(', ')) + '</span>';
+    }
+    if (issue.components && issue.components.length) {
+      html += '      <span class="jira-info-item"><span class="jira-info-label">Components:</span> ' + escHtml(issue.components.join(', ')) + '</span>';
+    }
+    html += '      <span class="jira-info-item"><span class="jira-info-label">Updated:</span> ' + escHtml((issue.updated || '').substring(0, 10)) + '</span>';
+    html += '    </div>';
+    html += '    <div class="jira-desc-preview">' + escHtml(descPreview) + '</div>';
+    html += '    <div class="jira-actions">';
+    html += '      <button class="jira-action-btn jira-btn-primary" onclick="jiraAction(\'summarize\',' + i + ',this)">📝 Summarize</button>';
+    html += '      <button class="jira-action-btn" onclick="jiraAction(\'docImpact\',' + i + ',this)">📊 Doc Impact</button>';
+    html += '      <button class="jira-action-btn" onclick="jiraAction(\'missingFields\',' + i + ',this)">🔍 Missing Fields</button>';
+    html += '      <button class="jira-action-btn" onclick="jiraAction(\'analyzeReadiness\',' + i + ',this)">🔬 Analyze Readiness</button>';
+    html += '      <button class="jira-action-btn" onclick="jiraAction(\'firstDraft\',' + i + ',this)">✍️ First Draft</button>';
+    html += '      <button class="jira-action-btn" onclick="jiraAction(\'firstDraftTask\',' + i + ',this)">📋 Draft (Task)</button>';
+    html += '    </div>';
+    html += '  </div>';
+    html += '</div>';
+  }
+  container.innerHTML = html;
+}
+
+function jiraToggleCard(idx) {
+  var card = document.getElementById('jira-card-' + idx);
+  if (card) card.classList.toggle('expanded');
+}
+
+async function jiraAction(action, idx, btnEl) {
+  var issue = _jiraIssues[idx];
+  if (!issue) return;
+
+  // Show loading state on button
+  if (btnEl) { btnEl.classList.add('loading'); btnEl.disabled = true; }
+
+  var resultPanel = document.getElementById('jira-result-panel');
+  var resultTitle = document.getElementById('jira-result-title');
+  var resultBadge = document.getElementById('jira-result-badge');
+  var resultContent = document.getElementById('jira-result-content');
+
+  try {
+    var res;
+    if (action === 'summarize') {
+      resultTitle.textContent = 'Structured Functional Overview';
+      resultBadge.textContent = issue.key;
+      res = await window.api.jiraSummarize(issue);
+      if (res && res.success && res.data && res.data.success) {
+        resultContent.innerHTML = jiraRenderMarkdown(res.data.summary);
+        resultContent.style.whiteSpace = 'normal';
+      } else {
+        resultContent.textContent = 'Error: ' + ((res && res.data && res.data.error) || (res && res.error && res.error.message) || 'Unknown error');
+        resultContent.style.whiteSpace = 'pre-wrap';
+      }
+    } else if (action === 'docImpact') {
+      resultTitle.textContent = 'Documentation Impact Assessment';
+      resultBadge.textContent = issue.key;
+      res = await window.api.jiraDocImpact(issue);
+      if (res && res.success && res.data && res.data.success) {
+        resultContent.textContent = res.data.assessment;
+      } else {
+        resultContent.textContent = 'Error: ' + ((res && res.data && res.data.error) || (res && res.error && res.error.message) || 'Unknown error');
+      }
+    } else if (action === 'missingFields') {
+      resultTitle.textContent = 'Missing Fields Analysis';
+      resultBadge.textContent = issue.key;
+      res = await window.api.jiraMissingFields(issue, true);
+      if (res && res.success && res.data) {
+        var out = '';
+        var rb = res.data.rule_based;
+        if (rb) {
+          out += '═══ COMPLETENESS SCORE: ' + rb.completeness_score + '%  ═══\n\n';
+          out += 'Required Fields: ' + rb.filled_required + '/' + rb.total_required + ' filled\n';
+          out += 'Recommended Fields: ' + rb.filled_recommended + '/' + rb.total_recommended + ' filled\n\n';
+          if (rb.missing_required && rb.missing_required.length) {
+            out += '── MISSING REQUIRED ──\n';
+            rb.missing_required.forEach(function(f) {
+              out += '  ⚠ ' + f.field + ' [' + f.severity + ']\n    → ' + f.suggestion + '\n';
+            });
+            out += '\n';
+          }
+          if (rb.missing_recommended && rb.missing_recommended.length) {
+            out += '── MISSING RECOMMENDED ──\n';
+            rb.missing_recommended.forEach(function(f) {
+              out += '  ℹ ' + f.field + ' [' + f.severity + ']\n    → ' + f.suggestion + '\n';
+            });
+            out += '\n';
+          }
+          if (rb.suggestions && rb.suggestions.length) {
+            out += '── SUGGESTIONS ──\n';
+            rb.suggestions.forEach(function(s) {
+              out += '  💡 ' + s.field + ': ' + s.message + '\n';
+            });
+            out += '\n';
+          }
+        }
+        if (res.data.ai_analysis && res.data.ai_analysis.success) {
+          out += '═══ AI ANALYSIS ═══\n\n' + res.data.ai_analysis.analysis;
+        }
+        resultContent.textContent = out || 'No issues found — ticket appears well-documented.';
+      } else {
+        resultContent.textContent = 'Error: ' + ((res && res.error && res.error.message) || 'Unknown error');
+      }
+    } else if (action === 'analyzeReadiness') {
+      resultTitle.textContent = 'TECDOC Readiness Analysis';
+      resultBadge.textContent = issue.key;
+      res = await window.api.jiraAnalyzeChat(issue.key, '');
+      if (res && res.success && res.data) {
+        if (res.data.success) {
+          resultContent.innerHTML = jiraFormatMarkdown(res.data.response);
+        } else {
+          resultContent.textContent = 'Error: ' + (res.data.error || 'Unknown error');
+        }
+      } else {
+        resultContent.textContent = 'Error: ' + ((res && res.error && res.error.message) || 'Unknown error');
+      }
+    } else if (action === 'firstDraft' || action === 'firstDraftTask') {
+      var topicType = action === 'firstDraftTask' ? 'task' : 'auto';
+      resultTitle.textContent = 'Neoscribe First Draft';
+      resultBadge.textContent = issue.key + ' (' + topicType + ')';
+      res = await window.api.jiraFirstDraft({ issue: issue, topicType: topicType, writerInstructions: '', existingXml: '' });
+      if (res && res.success && res.data && res.data.success) {
+        resultContent.textContent = res.data.xml;
+        if (res.data.warning) {
+          resultContent.textContent = '⚠️ ' + res.data.warning + '\n\n' + res.data.xml;
+        }
+      } else {
+        resultContent.textContent = 'Error: ' + ((res && res.data && res.data.error) || (res && res.error && res.error.message) || 'Unknown error');
+      }
+    }
+    resultPanel.style.display = 'block';
+    resultPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (e) {
+    resultContent.textContent = 'Error: ' + e.message;
+    resultPanel.style.display = 'block';
+  } finally {
+    if (btnEl) { btnEl.classList.remove('loading'); btnEl.disabled = false; }
+  }
+}
+
+function jiraRenderMarkdown(md) {
+  // Simple markdown to HTML converter for structured summaries
+  if (!md) return '';
+  var html = md;
+  // Escape HTML entities first
+  html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  // Horizontal rules
+  html = html.replace(/^---+$/gm, '<hr style="border:none;border-top:1px solid #e2e8f0;margin:16px 0;">');
+  // Headers
+  html = html.replace(/^### (.+)$/gm, '<h4 style="margin:14px 0 8px;font-size:14px;color:#1a2332;font-weight:700;">$1</h4>');
+  html = html.replace(/^## (.+)$/gm, '<h3 style="margin:16px 0 10px;font-size:15px;color:#1a2332;font-weight:700;">$1</h3>');
+  html = html.replace(/^# (.+)$/gm, '<h2 style="margin:18px 0 10px;font-size:16px;color:#1a2332;font-weight:700;">$1</h2>');
+  // Bold
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // Italic
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code style="background:#f1f5f9;padding:1px 4px;border-radius:3px;font-size:12px;">$1</code>');
+  // Bullet lists (lines starting with - or *)
+  html = html.replace(/^(\s*)[-*] (.+)$/gm, function(m, indent, text) {
+    var level = Math.floor(indent.length / 2);
+    var pad = 12 + level * 16;
+    return '<div style="padding-left:' + pad + 'px;margin:3px 0;"><span style="color:#007cba;margin-right:6px;">•</span>' + text + '</div>';
+  });
+  // Numbered lists
+  html = html.replace(/^(\s*)\d+\. (.+)$/gm, function(m, indent, text) {
+    var pad = 12 + Math.floor(indent.length / 2) * 16;
+    return '<div style="padding-left:' + pad + 'px;margin:3px 0;">' + text + '</div>';
+  });
+  // Paragraphs (double newlines)
+  html = html.replace(/\n\n/g, '<br><br>');
+  // Single newlines (within blocks)
+  html = html.replace(/\n/g, '<br>');
+  // Clean up excessive breaks
+  html = html.replace(/(<br>){3,}/g, '<br><br>');
+  return '<div class="jira-md-output">' + html + '</div>';
+}
+
+function jiraCloseResult() {
+  document.getElementById('jira-result-panel').style.display = 'none';
+  document.getElementById('jira-result-content').style.whiteSpace = 'pre-wrap';
+}
+
+function jiraCopyResult() {
+  var content = document.getElementById('jira-result-content').textContent;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(content);
+  } else {
+    var ta = document.createElement('textarea');
+    ta.value = content;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+}
+
+function escHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Auto-check JIRA status on tab open
+(function() {
+  var origOpenTab = window.openTab;
+  if (origOpenTab) {
+    window.openTab = function(id, e) {
+      origOpenTab(id, e);
+      if (id === 'jiraDashboard') {
+        jiraCheckStatus();
+      }
+    };
+  }
+})();
+
+async function jiraCheckStatus() {
+  try {
+    var res = await window.api.jiraStatus();
+    if (res && res.success && res.data) {
+      if (res.data.connected) {
+        jiraUpdateStatus(true, res.data.user || res.data.email || res.data.user_email);
+      } else if (res.data.configured) {
+        jiraUpdateStatus(false);
+      }
+    }
+  } catch (e) { /* silent */ }
+}
+
+// =============================================================================
+// JIRA TICKET ANALYST — Chat-Based Readiness Analysis
+// =============================================================================
+
+var _jaActiveTicket = '';
+var _jaReport = null;
+
+async function jaAnalyzeTicket() {
+  var input = document.getElementById('ja-ticket-input');
+  var ticketKey = input.value.trim().toUpperCase();
+
+  // Extract ticket key from URL if pasted
+  var urlMatch = ticketKey.match(/([A-Z]+-\d+)/);
+  if (urlMatch) ticketKey = urlMatch[1];
+
+  if (!ticketKey || !/^[A-Z]+-\d+$/.test(ticketKey)) {
+    jaShowError('Please enter a valid ticket key (e.g., TECDOC-1234).');
+    return;
+  }
+
+  _jaActiveTicket = ticketKey;
+  jaShowLoading(true);
+  jaHideError();
+
+  try {
+    var res = await window.api.jiraAnalyzeChat(ticketKey, '');
+    jaShowLoading(false);
+
+    if (res && res.success && res.data) {
+      if (res.data.success) {
+        _jaReport = res.data.report || null;
+        jaShowChat(ticketKey, res.data.response, _jaReport);
+      } else {
+        jaShowError(res.data.error || 'Analysis failed.');
+      }
+    } else {
+      jaShowError((res && res.error && res.error.message) || 'Analysis failed — check JIRA connection.');
+    }
+  } catch (e) {
+    jaShowLoading(false);
+    jaShowError('Error: ' + e.message);
+  }
+}
+
+function jaShowChat(ticketKey, response, report) {
+  var container = document.getElementById('ja-chat-container');
+  var messages = document.getElementById('ja-chat-messages');
+  var ticketLabel = document.getElementById('ja-active-ticket');
+  var badge = document.getElementById('ja-readiness-badge');
+
+  container.style.display = 'block';
+  ticketLabel.textContent = ticketKey + (report ? ' — ' + (report.ticket_summary || '') : '');
+
+  // Set readiness badge
+  if (report && report.readiness) {
+    var verdict = report.readiness.verdict;
+    badge.textContent = verdict === 'Yes' ? '✅ Ready' : verdict === 'No' ? '❌ Not Ready' : '⚠️ Conditional';
+    badge.className = 'ja-readiness-badge ja-badge-' + verdict.toLowerCase().replace(/\s/g, '');
+  } else {
+    badge.textContent = '';
+  }
+
+  // Add the analysis as a message
+  messages.innerHTML = '<div class="ja-message ja-message-bot">' +
+    '<div class="ja-message-header"><span class="ja-bot-label">🔬 Ticket Analyst</span><span class="ja-msg-time">' + new Date().toLocaleTimeString() + '</span></div>' +
+    '<div class="ja-message-body">' + jiraFormatMarkdown(response) + '</div>' +
+    '</div>';
+
+  messages.scrollTop = messages.scrollHeight;
+}
+
+async function jaAskFollowup(question) {
+  document.getElementById('ja-followup-input').value = question;
+  await jaSendFollowup();
+}
+
+async function jaSendFollowup() {
+  var input = document.getElementById('ja-followup-input');
+  var question = input.value.trim();
+  if (!question || !_jaActiveTicket) return;
+
+  var messages = document.getElementById('ja-chat-messages');
+
+  // Add user message
+  messages.innerHTML += '<div class="ja-message ja-message-user">' +
+    '<div class="ja-message-body">' + escHtml(question) + '</div>' +
+    '</div>';
+
+  input.value = '';
+  messages.scrollTop = messages.scrollHeight;
+
+  // Add typing indicator
+  messages.innerHTML += '<div class="ja-message ja-message-bot ja-typing" id="ja-typing">' +
+    '<div class="ja-message-body"><span class="ja-dots">...</span></div></div>';
+  messages.scrollTop = messages.scrollHeight;
+
+  try {
+    var res = await window.api.jiraAnalyzeChat(_jaActiveTicket, question);
+    // Remove typing indicator
+    var typing = document.getElementById('ja-typing');
+    if (typing) typing.remove();
+
+    if (res && res.success && res.data && res.data.success) {
+      messages.innerHTML += '<div class="ja-message ja-message-bot">' +
+        '<div class="ja-message-header"><span class="ja-bot-label">🔬 Ticket Analyst</span><span class="ja-msg-time">' + new Date().toLocaleTimeString() + '</span></div>' +
+        '<div class="ja-message-body">' + jiraFormatMarkdown(res.data.response) + '</div>' +
+        '</div>';
+    } else {
+      messages.innerHTML += '<div class="ja-message ja-message-bot">' +
+        '<div class="ja-message-body ja-msg-error">Error: ' + escHtml((res && res.data && res.data.error) || 'Request failed') + '</div>' +
+        '</div>';
+    }
+  } catch (e) {
+    var typing2 = document.getElementById('ja-typing');
+    if (typing2) typing2.remove();
+    messages.innerHTML += '<div class="ja-message ja-message-bot">' +
+      '<div class="ja-message-body ja-msg-error">Error: ' + escHtml(e.message) + '</div>' +
+      '</div>';
+  }
+  messages.scrollTop = messages.scrollHeight;
+}
+
+function jaClearChat() {
+  _jaActiveTicket = '';
+  _jaReport = null;
+  document.getElementById('ja-chat-container').style.display = 'none';
+  document.getElementById('ja-chat-messages').innerHTML = '';
+  document.getElementById('ja-ticket-input').value = '';
+}
+
+function jaCopyAnalysis() {
+  var messages = document.getElementById('ja-chat-messages');
+  var text = messages.innerText || messages.textContent;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text);
+  } else {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+}
+
+function jaShowLoading(show) {
+  document.getElementById('ja-loading').style.display = show ? 'flex' : 'none';
+}
+
+function jaShowError(msg) {
+  var el = document.getElementById('ja-error');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+function jaHideError() {
+  document.getElementById('ja-error').style.display = 'none';
+}
+
+function jiraFormatMarkdown(text) {
+  if (!text) return '';
+  // Basic markdown to HTML conversion for chat display
+  var html = escHtml(text);
+  // Headers
+  html = html.replace(/^### (.+)$/gm, '<h4 class="ja-md-h3">$1</h4>');
+  html = html.replace(/^## (.+)$/gm, '<h3 class="ja-md-h2">$1</h3>');
+  // Bold
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  // Horizontal rules
+  html = html.replace(/^---$/gm, '<hr class="ja-md-hr">');
+  // Tables
+  html = html.replace(/^\|(.+)\|$/gm, function(match, content) {
+    var cells = content.split('|').map(function(c) { return c.trim(); });
+    if (cells.every(function(c) { return /^[-:]+$/.test(c); })) {
+      return ''; // Skip separator rows
+    }
+    var row = '<tr>' + cells.map(function(c) { return '<td>' + c + '</td>'; }).join('') + '</tr>';
+    return row;
+  });
+  // Wrap consecutive table rows
+  html = html.replace(/((<tr>.*<\/tr>\n?)+)/g, '<table class="ja-md-table">$1</table>');
+  // List items
+  html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/((<li>.*<\/li>\n?)+)/g, '<ul class="ja-md-list">$1</ul>');
+  // Newlines
+  html = html.replace(/\n/g, '<br>');
+  // Clean up empty <br> around block elements
+  html = html.replace(/<br>\s*(<h[34]|<hr|<table|<ul)/g, '$1');
+  html = html.replace(/(<\/h[34]>|<\/table>|<\/ul>)\s*<br>/g, '$1');
+  return html;
+}
+</script>
 
 <!-- Close Confirmation Popup -->
 <div id="close-confirm-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;align-items:center;justify-content:center;">

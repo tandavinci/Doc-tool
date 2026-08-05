@@ -41,6 +41,10 @@ import markitdown_handler
 import review_engine
 import ai_assistant
 import doc_impact
+import jira_handler
+import jira_summarizer
+import jira_analyst
+import neoscribe_engine
 
 
 # =============================================================================
@@ -261,6 +265,243 @@ def handle_doc_impact(request_id, payload):
 
 
 # =============================================================================
+# JIRA HANDLERS
+# =============================================================================
+
+def handle_jira_configure(request_id, payload):
+    """Handle JIRA configuration update."""
+    logger.debug(f"[DEBUG] Action 'jira_configure' received: id={request_id}")
+    try:
+        jira_handler.configure(
+            base_url=payload.get("baseUrl"),
+            user_email=payload.get("userEmail"),
+            api_token=payload.get("apiToken"),
+            project_key=payload.get("projectKey"),
+        )
+        status = jira_handler.get_config_status()
+        success_response(request_id, status)
+    except Exception as e:
+        logger.error(f"JIRA configure error: id={request_id}, msg={str(e)}")
+        error_response(request_id, "JIRA_CONFIG_ERROR", f"Configuration failed: {str(e)}")
+
+
+def handle_jira_status(request_id, payload):
+    """Handle JIRA connection status check."""
+    logger.debug(f"[DEBUG] Action 'jira_status' received: id={request_id}")
+    try:
+        config_status = jira_handler.get_config_status()
+        if config_status["configured"]:
+            conn_status = jira_handler.check_connection()
+            config_status.update(conn_status)
+        success_response(request_id, config_status)
+    except Exception as e:
+        logger.error(f"JIRA status error: id={request_id}, msg={str(e)}")
+        error_response(request_id, "JIRA_STATUS_ERROR", f"Status check failed: {str(e)}")
+
+
+def handle_jira_fetch(request_id, payload):
+    """Handle fetching JIRA issues assigned to the user."""
+    project_key = payload.get("projectKey", "")
+    max_results = payload.get("maxResults", 50)
+    status_filter = payload.get("statusFilter", "")
+    logger.debug(f"[DEBUG] Action 'jira_fetch' received: id={request_id}, project={project_key}")
+    start_time = time.time()
+    try:
+        result = jira_handler.fetch_assigned_issues(
+            project_key=project_key,
+            max_results=max_results,
+            status_filter=status_filter,
+        )
+        duration = int((time.time() - start_time) * 1000)
+        logger.info(f"Handler completed: id={request_id}, action=jira_fetch, duration={duration}ms, count={len(result.get('issues', []))}")
+        success_response(request_id, result)
+    except Exception as e:
+        logger.error(f"JIRA fetch error: id={request_id}, msg={str(e)}")
+        error_response(request_id, "JIRA_FETCH_ERROR", f"Fetch failed: {str(e)}")
+
+
+def handle_jira_detail(request_id, payload):
+    """Handle fetching full detail for a single JIRA issue."""
+    issue_key = payload.get("issueKey", "")
+    logger.debug(f"[DEBUG] Action 'jira_detail' received: id={request_id}, key={issue_key}")
+    if not issue_key:
+        error_response(request_id, "INVALID_REQUEST", "Missing 'issueKey' in payload")
+        return
+    start_time = time.time()
+    try:
+        result = jira_handler.fetch_issue_detail(issue_key)
+        duration = int((time.time() - start_time) * 1000)
+        logger.info(f"Handler completed: id={request_id}, action=jira_detail, duration={duration}ms")
+        success_response(request_id, result)
+    except Exception as e:
+        logger.error(f"JIRA detail error: id={request_id}, msg={str(e)}")
+        error_response(request_id, "JIRA_DETAIL_ERROR", f"Detail fetch failed: {str(e)}")
+
+
+def handle_jira_summarize(request_id, payload):
+    """Handle AI summarization of a JIRA ticket."""
+    issue = payload.get("issue", {})
+    logger.debug(f"[DEBUG] Action 'jira_summarize' received: id={request_id}, key={issue.get('key', '')}")
+    if not issue:
+        error_response(request_id, "INVALID_REQUEST", "Missing 'issue' in payload")
+        return
+    start_time = time.time()
+    try:
+        result = jira_summarizer.summarize_ticket(issue)
+        duration = int((time.time() - start_time) * 1000)
+        logger.info(f"Handler completed: id={request_id}, action=jira_summarize, duration={duration}ms")
+        success_response(request_id, result)
+    except Exception as e:
+        logger.error(f"JIRA summarize error: id={request_id}, msg={str(e)}")
+        error_response(request_id, "JIRA_SUMMARIZE_ERROR", f"Summarization failed: {str(e)}")
+
+
+def handle_jira_doc_impact(request_id, payload):
+    """Handle AI documentation impact assessment of a JIRA ticket."""
+    issue = payload.get("issue", {})
+    logger.debug(f"[DEBUG] Action 'jira_doc_impact' received: id={request_id}, key={issue.get('key', '')}")
+    if not issue:
+        error_response(request_id, "INVALID_REQUEST", "Missing 'issue' in payload")
+        return
+    start_time = time.time()
+    try:
+        result = jira_summarizer.assess_doc_impact(issue)
+        duration = int((time.time() - start_time) * 1000)
+        logger.info(f"Handler completed: id={request_id}, action=jira_doc_impact, duration={duration}ms")
+        success_response(request_id, result)
+    except Exception as e:
+        logger.error(f"JIRA doc impact error: id={request_id}, msg={str(e)}")
+        error_response(request_id, "JIRA_DOC_IMPACT_ERROR", f"Doc impact assessment failed: {str(e)}")
+
+
+def handle_jira_missing_fields(request_id, payload):
+    """Handle missing fields analysis for a JIRA ticket."""
+    issue = payload.get("issue", {})
+    use_ai = payload.get("useAI", True)
+    logger.debug(f"[DEBUG] Action 'jira_missing_fields' received: id={request_id}, key={issue.get('key', '')}")
+    if not issue:
+        error_response(request_id, "INVALID_REQUEST", "Missing 'issue' in payload")
+        return
+    start_time = time.time()
+    try:
+        # Rule-based analysis (always fast)
+        rule_result = jira_handler.analyze_missing_fields(issue)
+
+        # AI-powered analysis (optional, slower)
+        ai_result = None
+        if use_ai:
+            try:
+                ai_result = jira_summarizer.analyze_missing_fields_ai(issue)
+            except Exception as ai_err:
+                logger.warning(f"AI missing fields analysis failed (non-fatal): {ai_err}")
+                ai_result = {"success": False, "analysis": "", "error": str(ai_err)}
+
+        combined = {
+            "rule_based": rule_result,
+            "ai_analysis": ai_result,
+            "issue_key": issue.get("key", ""),
+        }
+        duration = int((time.time() - start_time) * 1000)
+        logger.info(f"Handler completed: id={request_id}, action=jira_missing_fields, duration={duration}ms")
+        success_response(request_id, combined)
+    except Exception as e:
+        logger.error(f"JIRA missing fields error: id={request_id}, msg={str(e)}")
+        error_response(request_id, "JIRA_MISSING_FIELDS_ERROR", f"Missing fields analysis failed: {str(e)}")
+
+
+def handle_jira_first_draft(request_id, payload):
+    """Handle Neoscribe first-draft generation from a JIRA ticket."""
+    issue = payload.get("issue", {})
+    topic_type = payload.get("topicType", "auto")
+    writer_instructions = payload.get("writerInstructions", "")
+    existing_xml = payload.get("existingXml", "")
+    logger.debug(f"[DEBUG] Action 'jira_first_draft' received: id={request_id}, key={issue.get('key', '')}, type={topic_type}")
+    if not issue:
+        error_response(request_id, "INVALID_REQUEST", "Missing 'issue' in payload")
+        return
+    start_time = time.time()
+    try:
+        if existing_xml:
+            # Mode 2: Update existing topic
+            result = neoscribe_engine.update_existing_topic(
+                issue, existing_xml, writer_instructions
+            )
+        else:
+            # Mode 1: New topic draft
+            result = neoscribe_engine.generate_new_draft(
+                issue, topic_type, writer_instructions
+            )
+        duration = int((time.time() - start_time) * 1000)
+        logger.info(f"Handler completed: id={request_id}, action=jira_first_draft, duration={duration}ms")
+        success_response(request_id, result)
+    except Exception as e:
+        logger.error(f"JIRA first draft error: id={request_id}, msg={str(e)}")
+        # Try fallback (no LLM)
+        try:
+            fallback = neoscribe_engine.generate_fallback_draft(issue, topic_type if topic_type != "auto" else "concept")
+            fallback["warning"] = f"LLM unavailable ({str(e)}). Generated skeleton template."
+            success_response(request_id, fallback)
+        except Exception as fb_err:
+            error_response(request_id, "JIRA_DRAFT_ERROR", f"First draft generation failed: {str(e)}")
+
+
+# =============================================================================
+# JIRA TICKET ANALYST HANDLERS
+# =============================================================================
+
+def handle_jira_analyze_ticket(request_id, payload):
+    """Handle full TECDOC ticket readiness analysis."""
+    issue_key = payload.get("issueKey", "")
+    logger.debug(f"[DEBUG] Action 'jira_analyze_ticket' received: id={request_id}, key={issue_key}")
+    if not issue_key:
+        error_response(request_id, "INVALID_REQUEST", "Missing 'issueKey' in payload")
+        return
+    start_time = time.time()
+    try:
+        result = jira_analyst.analyze_ticket(issue_key)
+        duration = int((time.time() - start_time) * 1000)
+        logger.info(f"Handler completed: id={request_id}, action=jira_analyze_ticket, duration={duration}ms")
+        success_response(request_id, result)
+    except Exception as e:
+        logger.error(f"JIRA analyze ticket error: id={request_id}, msg={str(e)}")
+        error_response(request_id, "JIRA_ANALYZE_ERROR", f"Ticket analysis failed: {str(e)}")
+
+
+def handle_jira_analyze_chat(request_id, payload):
+    """Handle chat-based TECDOC ticket analysis (formatted for chat display)."""
+    issue_key = payload.get("issueKey", "")
+    question = payload.get("question", "")
+    logger.debug(f"[DEBUG] Action 'jira_analyze_chat' received: id={request_id}, key={issue_key}, q_len={len(question)}")
+    if not issue_key:
+        error_response(request_id, "INVALID_REQUEST", "Missing 'issueKey' in payload")
+        return
+    start_time = time.time()
+    try:
+        result = jira_analyst.analyze_ticket_chat(issue_key, question)
+        duration = int((time.time() - start_time) * 1000)
+        logger.info(f"Handler completed: id={request_id}, action=jira_analyze_chat, duration={duration}ms")
+        success_response(request_id, result)
+    except Exception as e:
+        logger.error(f"JIRA analyze chat error: id={request_id}, msg={str(e)}")
+        error_response(request_id, "JIRA_ANALYZE_CHAT_ERROR", f"Chat analysis failed: {str(e)}")
+
+
+def handle_jira_quick_summary(request_id, payload):
+    """Handle quick summary fetch for JIRA dashboard display."""
+    issue_key = payload.get("issueKey", "")
+    logger.debug(f"[DEBUG] Action 'jira_quick_summary' received: id={request_id}, key={issue_key}")
+    if not issue_key:
+        error_response(request_id, "INVALID_REQUEST", "Missing 'issueKey' in payload")
+        return
+    try:
+        result = jira_analyst.get_ticket_quick_summary(issue_key)
+        success_response(request_id, result)
+    except Exception as e:
+        logger.error(f"JIRA quick summary error: id={request_id}, msg={str(e)}")
+        error_response(request_id, "JIRA_SUMMARY_ERROR", f"Quick summary failed: {str(e)}")
+
+
+# =============================================================================
 # ACTION ROUTER
 # =============================================================================
 
@@ -275,6 +516,17 @@ ACTION_HANDLERS = {
     "ai_chat": handle_ai_chat,
     "ai_status": handle_ai_status,
     "ai_clear": handle_ai_clear,
+    "jira_configure": handle_jira_configure,
+    "jira_status": handle_jira_status,
+    "jira_fetch": handle_jira_fetch,
+    "jira_detail": handle_jira_detail,
+    "jira_summarize": handle_jira_summarize,
+    "jira_doc_impact": handle_jira_doc_impact,
+    "jira_missing_fields": handle_jira_missing_fields,
+    "jira_first_draft": handle_jira_first_draft,
+    "jira_analyze_ticket": handle_jira_analyze_ticket,
+    "jira_analyze_chat": handle_jira_analyze_chat,
+    "jira_quick_summary": handle_jira_quick_summary,
 }
 
 
