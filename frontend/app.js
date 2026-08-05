@@ -16,7 +16,7 @@
    [FRONTEND: UI] — DOM manipulation, stays in app.js
    ============================================================ */
 function openTab(id, e) {
-  ['converter','analyzer','contentAnalysis','rewrite','markitdown','quickReview','docImpact','aiAssistant'].forEach(t =>
+  ['converter','analyzer','contentAnalysis','rewrite','markitdown','quickReview','docImpact','aiAssistant','jiraDashboard'].forEach(t =>
     document.getElementById(t).style.display = 'none');
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   e.target.classList.add('active');
@@ -30,9 +30,14 @@ function openTab(id, e) {
     }, 50);
   }
 
-  // Check AI status when switching to AI Assistant tab
+  // Check AI status and warm up the model when switching to AI Assistant tab
   if (id === 'aiAssistant') {
     aiCheckStatus();
+    // Send a tiny warmup request to pre-load the model into memory
+    if (window.api && window.api.aiChat && !window._aiWarmedUp) {
+      window._aiWarmedUp = true;
+      window.api.aiChat('hi', '').catch(function() {}); // fire-and-forget
+    }
   }
 }
 

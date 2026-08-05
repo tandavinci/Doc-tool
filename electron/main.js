@@ -142,6 +142,7 @@ function sendToBackend(action, payload) {
     // Use longer timeout for markitdown conversions and AI chat (local LLM latency)
     const timeoutMs = action === 'ai_chat' ? AI_CHAT_TIMEOUT_MS
       : (action === 'markitdown') ? MARKITDOWN_TIMEOUT_MS
+      : (action.startsWith('jira_') && action !== 'jira_fetch' && action !== 'jira_status' && action !== 'jira_configure') ? AI_CHAT_TIMEOUT_MS
       : REQUEST_TIMEOUT_MS;
 
     // Timeout protection for stalled requests
@@ -286,6 +287,98 @@ ipcMain.handle('ai-status', async (event) => {
 ipcMain.handle('ai-clear', async (event) => {
   try {
     return await sendToBackend('ai_clear', {});
+  } catch (e) {
+    return { id: null, success: false, error: { code: 'IPC_ERROR', message: e.message } };
+  }
+});
+
+// =============================================================================
+// JIRA IPC HANDLERS
+// =============================================================================
+
+ipcMain.handle('jira-configure', async (event, payload) => {
+  try {
+    return await sendToBackend('jira_configure', payload);
+  } catch (e) {
+    return { id: null, success: false, error: { code: 'IPC_ERROR', message: e.message } };
+  }
+});
+
+ipcMain.handle('jira-status', async (event) => {
+  try {
+    return await sendToBackend('jira_status', {});
+  } catch (e) {
+    return { id: null, success: false, error: { code: 'IPC_ERROR', message: e.message } };
+  }
+});
+
+ipcMain.handle('jira-fetch', async (event, payload) => {
+  try {
+    return await sendToBackend('jira_fetch', payload);
+  } catch (e) {
+    return { id: null, success: false, error: { code: 'IPC_ERROR', message: e.message } };
+  }
+});
+
+ipcMain.handle('jira-detail', async (event, issueKey) => {
+  try {
+    return await sendToBackend('jira_detail', { issueKey });
+  } catch (e) {
+    return { id: null, success: false, error: { code: 'IPC_ERROR', message: e.message } };
+  }
+});
+
+ipcMain.handle('jira-summarize', async (event, issue) => {
+  try {
+    return await sendToBackend('jira_summarize', { issue });
+  } catch (e) {
+    return { id: null, success: false, error: { code: 'IPC_ERROR', message: e.message } };
+  }
+});
+
+ipcMain.handle('jira-doc-impact', async (event, issue) => {
+  try {
+    return await sendToBackend('jira_doc_impact', { issue });
+  } catch (e) {
+    return { id: null, success: false, error: { code: 'IPC_ERROR', message: e.message } };
+  }
+});
+
+ipcMain.handle('jira-missing-fields', async (event, issue, useAI) => {
+  try {
+    return await sendToBackend('jira_missing_fields', { issue, useAI });
+  } catch (e) {
+    return { id: null, success: false, error: { code: 'IPC_ERROR', message: e.message } };
+  }
+});
+
+ipcMain.handle('jira-first-draft', async (event, payload) => {
+  try {
+    return await sendToBackend('jira_first_draft', payload);
+  } catch (e) {
+    return { id: null, success: false, error: { code: 'IPC_ERROR', message: e.message } };
+  }
+});
+
+ipcMain.handle('jira-analyze-ticket', async (event, issueKey) => {
+  try {
+    return await sendToBackend('jira_analyze_ticket', { issueKey });
+  } catch (e) {
+    return { id: null, success: false, error: { code: 'IPC_ERROR', message: e.message } };
+  }
+});
+
+ipcMain.handle('jira-analyze-chat', async (event, issueKey, question) => {
+  try {
+    return await sendToBackend('jira_analyze_chat', { issueKey, question });
+  } catch (e) {
+    return { id: null, success: false, error: { code: 'IPC_ERROR', message: e.message } };
+  }
+});
+
+ipcMain.handle('jira-quick-summary', async (event, issueKey) => {
+  try {
+    return await sendToBackend('jira_quick_summary', { issueKey });
   } catch (e) {
     return { id: null, success: false, error: { code: 'IPC_ERROR', message: e.message } };
   }
