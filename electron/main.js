@@ -141,7 +141,7 @@ function sendToBackend(action, payload) {
 
     // Use longer timeout for markitdown conversions and AI chat (local LLM latency)
     const timeoutMs = action === 'ai_chat' ? AI_CHAT_TIMEOUT_MS
-      : (action === 'markitdown') ? MARKITDOWN_TIMEOUT_MS
+      : (action === 'markitdown' || action === 'convert_dita') ? MARKITDOWN_TIMEOUT_MS
       : (action.startsWith('jira_') && action !== 'jira_fetch' && action !== 'jira_status' && action !== 'jira_configure') ? AI_CHAT_TIMEOUT_MS
       : REQUEST_TIMEOUT_MS;
 

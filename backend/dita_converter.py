@@ -175,6 +175,13 @@ def _preprocess_html_input(html_text):
     """
     if not html_text:
         return html_text
+
+    # Strip base64 embedded images FIRST (can be megabytes of data that choke regex)
+    html_text = re.sub(r'src="data:image/[^"]*"', 'src=""', html_text)
+    html_text = re.sub(r'src=\'data:image/[^\']*\'', "src=''", html_text)
+    # Also strip any standalone base64 data blocks
+    html_text = re.sub(r'data:image/[a-z+]+;base64,[A-Za-z0-9+/=\s]{100,}', '', html_text)
+
     # Check if this is actually HTML (has HTML tags like <p>, <div>, etc.)
     # A lone < in plain text (like "Qty < Safety") should NOT trigger HTML processing
     if not re.search(r'<(?:p|div|ul|ol|li|h[1-6]|strong|em|b|i|table|br|span|a)\b', html_text, re.IGNORECASE):
@@ -822,6 +829,10 @@ def generate_concept_xml(text):
     - Never divides paragraphs into <section>
     - Does not modify the input language or structure
     """
+    # Safety: truncate extremely large inputs to prevent regex catastrophic backtracking
+    if len(text) > 500000:
+        text = text[:500000]
+
     # Preprocess HTML input if detected
     text = _preprocess_html_input(text)
 
@@ -1098,6 +1109,9 @@ def generate_task_xml(text):
     - Never nests <step> inside <step>
     - Does not modify the input language or structure
     """
+    # Safety: truncate extremely large inputs to prevent regex catastrophic backtracking
+    if len(text) > 500000:
+        text = text[:500000]
     # Preprocess HTML input if detected
     text = _preprocess_html_input(text)
 
