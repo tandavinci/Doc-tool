@@ -1033,6 +1033,10 @@
     </select>
     <input type="text" id="jira-project-filter" placeholder="Project key (optional)" value="TECDOC" style="padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:12px;width:140px;">
     <button onclick="jiraFetchIssues()" id="jira-fetch-btn" style="padding:6px 16px;background:#007cba;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer;">🔄 Fetch My Issues</button>
+    <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:#555;cursor:pointer;margin-left:8px;" title="Skip AI summarization for instant results">
+      <input type="checkbox" id="jira-quick-mode" checked style="margin:0;cursor:pointer;">
+      <span>⚡ Quick Mode</span>
+    </label>
     <div id="jira-loading" style="display:none;">
       <span style="display:inline-block;width:14px;height:14px;border:2px solid #ddd;border-top-color:#007cba;border-radius:50%;animation:md-spin 0.8s linear infinite;vertical-align:middle;"></span>
       <span style="font-size:12px;color:#666;margin-left:4px;">Loading...</span>
@@ -1382,6 +1386,16 @@ function jiraUpdateStatus(connected, label) {
 }
 
 async function jiraFetchIssues() {
+  // Check if configured first
+  try {
+    var statusRes = await window.api.jiraStatus();
+    if (statusRes && statusRes.success && statusRes.data && !statusRes.data.configured) {
+      alert('JIRA not configured. Click "Configure" to enter your Base URL, Email, and API Token.\n\nGenerate an API token at:\nhttps://id.atlassian.com/manage-profile/security/api-tokens');
+      jiraToggleConfig();
+      return;
+    }
+  } catch (e) { /* continue anyway */ }
+
   var loading = document.getElementById('jira-loading');
   var fetchBtn = document.getElementById('jira-fetch-btn');
   loading.style.display = 'inline-flex';
@@ -1488,30 +1502,77 @@ async function jiraAction(action, idx, btnEl) {
 
   try {
     var res;
+    var quickMode = document.getElementById('jira-quick-mode') && document.getElementById('jira-quick-mode').checked;
+
     if (action === 'summarize') {
       resultTitle.textContent = 'Structured Functional Overview';
       resultBadge.textContent = issue.key;
-      res = await window.api.jiraSummarize(issue);
-      if (res && res.success && res.data && res.data.success) {
-        resultContent.innerHTML = jiraRenderMarkdown(res.data.summary);
-        resultContent.style.whiteSpace = 'normal';
-      } else {
-        resultContent.textContent = 'Error: ' + ((res && res.data && res.data.error) || (res && res.error && res.error.message) || 'Unknown error');
+      if (quickMode) {
+        // Quick Mode: show raw ticket data without LLM summarization
+        var quickSummary = '═══ QUICK SUMMARY (No AI) ═══\n\n';
+        quickSummary += 'Key: ' + issue.key + '\n';
+        quickSummary += 'Type: ' + (issue.issue_type || 'N/A') + '\n';
+        quickSummary += 'Status: ' + (issue.status || 'N/A') + '\n';
+        quickSummary += 'Priority: ' + (issue.priority || 'N/A') + '\n';
+        if (issue.fix_versions && issue.fix_versions.length) quickSummary += 'Fix Version: ' + issue.fix_versions.join(', ') + '\n';
+        if (issue.components && issue.components.length) quickSummary += 'Components: ' + issue.components.join(', ') + '\n';
+        quickSummary += '\n── Summary ──\n' + (issue.summary || 'N/A') + '\n';
+        quickSummary += '\n── Description ──\n' + (issue.description || '[No description]') + '\n';
+        if (issue.overview_of_change) quickSummary += '\n── Overview of Change ──\n' + issue.overview_of_change + '\n';
+        if (issue.detailed_description) quickSummary += '\n── Detailed Description ──\n' + issue.detailed_description + '\n';
+        quickSummary += '\n⚡ Disable Quick Mode for AI-powered structured analysis.';
+        resultContent.textContent = quickSummary;
         resultContent.style.whiteSpace = 'pre-wrap';
+      } else {
+        res = await window.api.jiraSummarize(issue);
+        if (res && res.success && res.data && res.data.success) {
+          resultContent.innerHTML = jiraRenderMarkdown(res.data.summary);
+          resultContent.style.whiteSpace = 'normal';
+        } else {
+          resultContent.textContent = 'Error: ' + ((res && res.data && res.data.error) || (res && res.error && res.error.message) || 'Unknown error');
+          resultContent.style.whiteSpace = 'pre-wrap';
+        }
       }
     } else if (action === 'docImpact') {
       resultTitle.textContent = 'Documentation Impact Assessment';
       resultBadge.textContent = issue.key;
-      res = await window.api.jiraDocImpact(issue);
-      if (res && res.success && res.data && res.data.success) {
-        resultContent.textContent = res.data.assessment;
+      if (quickMode) {
+        // Quick Mode: use rule-based doc impact (no LLM)
+        res = await window.api.docImpact([issue]);
+        if (res && res.success && res.data) {
+          var d = res.data;
+          var out = '═══ DOC IMPACT (Rule-Based) ═══\n\n';
+          out += 'Severity: ' + ((d.ticket_impacts && d.ticket_impacts[0]) ? d.ticket_impacts[0].severity : 'N/A') + '\n\n';
+          if (d.impacted_areas && d.impacted_areas.length) {
+            out += '── Impacted Areas ──\n';
+            d.impacted_areas.forEach(function(a) {
+              out += '  • ' + a.area + ' [' + a.severity + '] — ' + (a.recommendation || '') + '\n';
+            });
+            out += '\n';
+          }
+          if (d.ticket_impacts && d.ticket_impacts[0] && d.ticket_impacts[0].recommendations) {
+            out += '── Recommendations ──\n';
+            d.ticket_impacts[0].recommendations.forEach(function(r) {
+              out += '  → ' + r + '\n';
+            });
+          }
+          out += '\n⚡ Disable Quick Mode for AI-powered deeper analysis.';
+          resultContent.textContent = out;
+        } else {
+          resultContent.textContent = 'Error: ' + ((res && res.error && res.error.message) || 'Assessment failed');
+        }
       } else {
-        resultContent.textContent = 'Error: ' + ((res && res.data && res.data.error) || (res && res.error && res.error.message) || 'Unknown error');
+        res = await window.api.jiraDocImpact(issue);
+        if (res && res.success && res.data && res.data.success) {
+          resultContent.textContent = res.data.assessment;
+        } else {
+          resultContent.textContent = 'Error: ' + ((res && res.data && res.data.error) || (res && res.error && res.error.message) || 'Unknown error');
+        }
       }
     } else if (action === 'missingFields') {
       resultTitle.textContent = 'Missing Fields Analysis';
       resultBadge.textContent = issue.key;
-      res = await window.api.jiraMissingFields(issue, true);
+      res = await window.api.jiraMissingFields(issue, !quickMode);
       if (res && res.success && res.data) {
         var out = '';
         var rb = res.data.rule_based;
