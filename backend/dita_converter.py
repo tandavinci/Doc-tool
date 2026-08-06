@@ -446,6 +446,15 @@ def _apply_uicontrol(text):
                 return m.group(0)
             skip_words = {'The', 'This', 'That', 'These', 'Those', 'Each',
                           'Every', 'Some', 'Any', 'All', 'No', 'One', 'Its'}
+            # Strip action verbs from the beginning (Click, Select, Press, etc.)
+            action_verbs = ['Click', 'Select', 'Press', 'Tap', 'Choose', 'Open', 'Close']
+            for verb in action_verbs:
+                if name.startswith(verb + ' '):
+                    prefix = verb + ' '
+                    name = name[len(prefix):]
+                    if name:
+                        return prefix + "<uicontrol>" + name + "</uicontrol>" + suffix
+                    return m.group(0)
             for sw in skip_words:
                 if name.startswith(sw + ' '):
                     prefix = sw + ' '
@@ -611,18 +620,20 @@ def _apply_menucascade(text):
 
     Example: 'Navigate to Settings &gt; Label Configuration &gt; Printers'
     The path 'Settings > Label Configuration > Printers' is wrapped in menucascade.
+    Navigation verbs (Navigate to, Select, Go to) are kept outside the tag.
 
     Only used in task files.
     """
-    # Match: word(s) &gt; word(s) [&gt; word(s)]...
-    # Stop each segment at the next &gt; or at punctuation/end
+    # Match: optional nav verb + word(s) &gt; word(s) [&gt; word(s)]...
     pattern = re.compile(
+        r'((?:Navigate\s+to|Select|Go\s+to|Access)\s+)?'  # optional nav verb prefix
         r'((?:[A-Za-z][\w]*(?:\s+[A-Za-z][\w]*)*)'  # first segment
         r'(?:\s*&gt;\s*(?:[A-Za-z][\w]*(?:\s+[A-Za-z][\w]*)*))+)'  # subsequent segments
     )
 
     def _menucascade_replacer(m):
-        full = m.group(0).strip()
+        prefix = m.group(1) or ''
+        full = m.group(2).strip()
         parts = re.split(r'\s*&gt;\s*', full)
         parts = [p.strip() for p in parts if p.strip()]
         if len(parts) < 2:
@@ -630,7 +641,7 @@ def _apply_menucascade(text):
         inner = "".join(
             "<uicontrol>" + p + "</uicontrol>" for p in parts
         )
-        return "<menucascade>" + inner + "</menucascade>"
+        return prefix + "<menucascade>" + inner + "</menucascade>"
 
     return pattern.sub(_menucascade_replacer, text)
 
@@ -1107,8 +1118,16 @@ def generate_task_xml(text):
     if first_step_idx is not None and first_step_idx > 0:
         shortdesc_lines = []
         for i in range(first_step_idx):
-            if lines[i].strip():
-                shortdesc_lines.append(lines[i].strip())
+            stripped = lines[i].strip()
+            if not stripped:
+                continue
+            # Skip the title line (first non-empty line that looks like a heading/gerund title)
+            if i == 0 and _is_heading_line(stripped):
+                continue
+            # Skip gerund-style title lines (e.g., "Configuring warehouse zones")
+            if i == 0 and re.match(r'^[A-Z][a-z]+ing\s+', stripped) and not stripped.endswith('.'):
+                continue
+            shortdesc_lines.append(stripped)
         if shortdesc_lines:
             shortdesc_text = " ".join(shortdesc_lines)
             xml_parts.append("<shortdesc>" + _apply_inline_tags(shortdesc_text, is_task=True) + "</shortdesc>\n")
