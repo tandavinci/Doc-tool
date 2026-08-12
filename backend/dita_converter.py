@@ -77,8 +77,13 @@ def _process_table_cell(cell_html):
 
     # Escape angle-bracket codes that look like abbreviations (e.g., <CR>, <MO>, <DO/RO>)
     # These are NOT HTML tags — they're content codes that must be preserved as text.
-    # Match < followed by uppercase letters/slashes (not valid HTML tag patterns)
-    cell = re.sub(r'<([A-Z][A-Z0-9/,]+)>', r'&lt;\1&gt;', cell)
+    # Match < followed by uppercase letters/slashes/commas/spaces (not valid HTML tag patterns)
+    cell = re.sub(r'<([A-Z][A-Z0-9/,\s]*[A-Z0-9/])>', r'&lt;\1&gt;', cell)
+    # Also catch unclosed angle brackets like "<DO " or "<MO," that lack closing >
+    cell = re.sub(r'<([A-Z]{2,}(?:[/,][A-Z]{2,})*)(?=[\s,;.\)]|$)', r'&lt;\1', cell)
+
+    # Escape bare & that are not already part of an entity reference
+    cell = re.sub(r'&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)', '&amp;', cell)
 
     # Handle Note: prefix
     lines_list = cell.split('\n')
@@ -948,6 +953,10 @@ def generate_concept_xml(text):
     result = "<conbody>\n" + "".join(xml_parts) + "</conbody>"
     # Clean up any unresolved bold markers that leaked through
     result = re.sub(r'\{\{BOLD:(.*?)\}\}', r'<uicontrol>\1</uicontrol>', result)
+    # Safety: escape any remaining bare & that aren't valid XML entity references
+    result = re.sub(r'&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)', '&amp;', result)
+    # Safety: escape any remaining unmatched < that aren't valid XML tags
+    result = re.sub(r'<(?!/?\w)', '&lt;', result)
     return result
 
 
@@ -1215,7 +1224,12 @@ def generate_task_xml(text):
     if in_steps:
         xml_parts.append("</steps>\n")
 
-    return "<taskbody>\n" + "".join(xml_parts) + "</taskbody>"
+    result = "<taskbody>\n" + "".join(xml_parts) + "</taskbody>"
+    # Safety: escape any remaining bare & that aren't valid XML entity references
+    result = re.sub(r'&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)', '&amp;', result)
+    # Safety: escape any remaining unmatched < that aren't valid XML tags
+    result = re.sub(r'<(?!/?\w)', '&lt;', result)
+    return result
 
 
 def _parse_step_info(lines, start_idx):
