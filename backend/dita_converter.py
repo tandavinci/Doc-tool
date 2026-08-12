@@ -30,11 +30,12 @@ def _process_table_cell(cell_html):
     """Process HTML content inside a table cell into DITA-compatible content.
 
     Handles:
-    - Plain text paragraphs → wrapped in <p> if multiple paragraphs
+    - Plain text paragraphs → wrapped in <p>
     - Bullet lists → <ul><li>
     - Numbered lists → <ol><li>
     - Notes → <note>
-    - Line breaks → space or <p> breaks
+    - Bold text → <uicontrol>
+    - Line breaks → separate <p> elements
     """
     if not cell_html or not cell_html.strip():
         return ''
@@ -42,25 +43,40 @@ def _process_table_cell(cell_html):
     # Convert lists inside the cell
     cell = cell_html
 
-    # Convert <ul><li> to bullet markers
+    # Convert <ul><li> — preserve bold inside list items
     cell = re.sub(r'</ul>\s*<ul[^>]*>', '', cell, flags=re.IGNORECASE)
     def _cell_ul(m):
         items = re.findall(r'<li[^>]*>(.*?)</li>', m.group(0), re.DOTALL | re.IGNORECASE)
         parts = []
         for item in items:
-            parts.append('<li>' + xml_escape(_strip_tags(item).strip()) + '</li>')
+            # Convert bold to uicontrol, then strip remaining tags
+            item_text = re.sub(r'<(strong|b)\b[^>]*>(.*?)</\1>', r'<uicontrol>\2</uicontrol>', item, flags=re.DOTALL | re.IGNORECASE)
+            item_text = re.sub(r'<(?!/?uicontrol)[^>]+>', '', item_text)
+            item_text = item_text.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&nbsp;', ' ')
+            # Re-escape for XML safety
+            item_text = re.sub(r'&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)', '&amp;', item_text)
+            item_text = re.sub(r'<([A-Z][A-Z0-9/,\s]*[A-Z0-9/])>', r'&lt;\1&gt;', item_text)
+            parts.append('<li>' + item_text.strip() + '</li>')
         return '<ul>' + ''.join(parts) + '</ul>'
     cell = re.sub(r'<ul[^>]*>.*?</ul>', _cell_ul, cell, flags=re.DOTALL | re.IGNORECASE)
 
-    # Convert <ol><li>
+    # Convert <ol><li> — preserve bold inside list items
     cell = re.sub(r'</ol>\s*<ol[^>]*>', '', cell, flags=re.IGNORECASE)
     def _cell_ol(m):
         items = re.findall(r'<li[^>]*>(.*?)</li>', m.group(0), re.DOTALL | re.IGNORECASE)
         parts = []
         for item in items:
-            parts.append('<li>' + xml_escape(_strip_tags(item).strip()) + '</li>')
+            item_text = re.sub(r'<(strong|b)\b[^>]*>(.*?)</\1>', r'<uicontrol>\2</uicontrol>', item, flags=re.DOTALL | re.IGNORECASE)
+            item_text = re.sub(r'<(?!/?uicontrol)[^>]+>', '', item_text)
+            item_text = item_text.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&nbsp;', ' ')
+            item_text = re.sub(r'&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)', '&amp;', item_text)
+            item_text = re.sub(r'<([A-Z][A-Z0-9/,\s]*[A-Z0-9/])>', r'&lt;\1&gt;', item_text)
+            parts.append('<li>' + item_text.strip() + '</li>')
         return '<ol>' + ''.join(parts) + '</ol>'
     cell = re.sub(r'<ol[^>]*>.*?</ol>', _cell_ol, cell, flags=re.DOTALL | re.IGNORECASE)
+
+    # Convert bold/strong to <uicontrol> markers BEFORE stripping other tags
+    cell = re.sub(r'<(strong|b)\b[^>]*>(.*?)</\1>', r'<uicontrol>\2</uicontrol>', cell, flags=re.DOTALL | re.IGNORECASE)
 
     # Convert <br> to newlines for processing
     cell = re.sub(r'<br\s*/?\s*>', '\n', cell, flags=re.IGNORECASE)
@@ -68,9 +84,8 @@ def _process_table_cell(cell_html):
     cell = re.sub(r'</p>', '\n', cell, flags=re.IGNORECASE)
     cell = re.sub(r'<p[^>]*>', '', cell, flags=re.IGNORECASE)
 
-    # Preserve <ul>, <ol> tags that we already converted
-    # Strip other HTML tags
-    cell = re.sub(r'<(?!/?(?:ul|ol|li|note))[^>]+>', '', cell)
+    # Preserve <ul>, <ol>, <uicontrol>, <note> tags — strip all other HTML
+    cell = re.sub(r'<(?!/?(?:ul|ol|li|note|uicontrol))[^>]+>', '', cell)
 
     # Decode entities
     cell = cell.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&nbsp;', ' ')
@@ -116,22 +131,37 @@ def _process_table_cell(cell_html):
         # Don't wrap in <p> if it's already a list or note
         if content.startswith('<ul>') or content.startswith('<ol>') or content.startswith('<note'):
             return content
-        # Single short text — wrap in <p> for consistency
+        # Check for bullet marker in single line
+        bullet_match = re.match(r'^[\-\*\+\u2022\u2023\u25E6\u00B7\u2013\u2014]\s+(.+)', content)
+        if bullet_match:
+            return '<ul><li>' + bullet_match.group(1) + '</li></ul>'
+        # Single text — wrap in <p>
         return '<p>' + content + '</p>'
     else:
-        # Multiple lines — wrap each in <p>, but keep lists/notes as-is
+        # Multiple lines — wrap each in <p>, keep lists/notes/bullets as-is
         result = ''
+        bullet_buffer = []  # Collect consecutive bullets into one <ul>
         for line in non_empty:
+            # Check if it's a bullet line
+            bullet_match = re.match(r'^[\-\*\+\u2022\u2023\u25E6\u00B7\u2013\u2014]\s+(.+)', line)
+
             if line.startswith('<ul>') or line.startswith('<ol>') or line.startswith('<note'):
+                # Flush bullet buffer first
+                if bullet_buffer:
+                    result += '<ul>' + ''.join('<li>' + b + '</li>' for b in bullet_buffer) + '</ul>'
+                    bullet_buffer = []
                 result += line
-            elif line.startswith('\u00b7') or line.startswith('-') or line.startswith('*'):
-                # Bullet char in cell — collect into ul
-                bullet_text = re.sub(r'^[\u00b7\-\*]\s*', '', line)
-                result += '<ul><li>' + bullet_text + '</li></ul>'
+            elif bullet_match:
+                bullet_buffer.append(bullet_match.group(1))
             else:
+                # Flush bullet buffer
+                if bullet_buffer:
+                    result += '<ul>' + ''.join('<li>' + b + '</li>' for b in bullet_buffer) + '</ul>'
+                    bullet_buffer = []
                 result += '<p>' + line + '</p>'
-        # Merge adjacent ul tags
-        result = re.sub(r'</ul>\s*<ul>', '', result)
+        # Flush remaining bullets
+        if bullet_buffer:
+            result += '<ul>' + ''.join('<li>' + b + '</li>' for b in bullet_buffer) + '</ul>'
         return result
 
 
