@@ -75,6 +75,11 @@ def _process_table_cell(cell_html):
     # Decode entities
     cell = cell.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&nbsp;', ' ')
 
+    # Escape angle-bracket codes that look like abbreviations (e.g., <CR>, <MO>, <DO/RO>)
+    # These are NOT HTML tags — they're content codes that must be preserved as text.
+    # Match < followed by uppercase letters/slashes (not valid HTML tag patterns)
+    cell = re.sub(r'<([A-Z][A-Z0-9/,]+)>', r'&lt;\1&gt;', cell)
+
     # Handle Note: prefix
     lines_list = cell.split('\n')
     processed_lines = []
