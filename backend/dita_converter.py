@@ -48,7 +48,7 @@ def _process_table_cell(cell_html):
         items = re.findall(r'<li[^>]*>(.*?)</li>', m.group(0), re.DOTALL | re.IGNORECASE)
         parts = []
         for item in items:
-            parts.append('<li>' + _strip_tags(item).strip() + '</li>')
+            parts.append('<li>' + xml_escape(_strip_tags(item).strip()) + '</li>')
         return '<ul>' + ''.join(parts) + '</ul>'
     cell = re.sub(r'<ul[^>]*>.*?</ul>', _cell_ul, cell, flags=re.DOTALL | re.IGNORECASE)
 
@@ -58,7 +58,7 @@ def _process_table_cell(cell_html):
         items = re.findall(r'<li[^>]*>(.*?)</li>', m.group(0), re.DOTALL | re.IGNORECASE)
         parts = []
         for item in items:
-            parts.append('<li>' + _strip_tags(item).strip() + '</li>')
+            parts.append('<li>' + xml_escape(_strip_tags(item).strip()) + '</li>')
         return '<ol>' + ''.join(parts) + '</ol>'
     cell = re.sub(r'<ol[^>]*>.*?</ol>', _cell_ol, cell, flags=re.DOTALL | re.IGNORECASE)
 
@@ -83,6 +83,7 @@ def _process_table_cell(cell_html):
     cell = re.sub(r'<([A-Z]{2,}(?:[/,][A-Z]{2,})*)(?=[\s,;.\)]|$)', r'&lt;\1', cell)
 
     # Escape bare & that are not already part of an entity reference
+    # This must happen AFTER the angle-bracket escaping (which introduces &lt; and &gt;)
     cell = re.sub(r'&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)', '&amp;', cell)
 
     # Handle Note: prefix
@@ -272,7 +273,7 @@ def _preprocess_html_input(html_text):
         if is_header_row:
             xml += '<thead>\n<row>\n'
             for cell in first_row_cells:
-                cell_text = _strip_tags(cell).strip()
+                cell_text = xml_escape(_strip_tags(cell).strip())
                 xml += '<entry>' + cell_text + '</entry>\n'
             xml += '</row>\n</thead>\n'
             data_rows = rows[1:]
@@ -282,7 +283,7 @@ def _preprocess_html_input(html_text):
             if all_short and len(rows) > 1:
                 xml += '<thead>\n<row>\n'
                 for cell in first_row_cells:
-                    cell_text = _strip_tags(cell).strip()
+                    cell_text = xml_escape(_strip_tags(cell).strip())
                     xml += '<entry>' + cell_text + '</entry>\n'
                 xml += '</row>\n</thead>\n'
                 data_rows = rows[1:]
