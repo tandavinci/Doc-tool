@@ -343,10 +343,20 @@ def _preprocess_html_input(html_text):
             for cell in cells:
                 # Process cell content: preserve lists, notes, paragraphs
                 cell_content = _process_table_cell(cell)
-                # If cell_content has raw newlines but no <p> wrapping, fix it
-                if '\n' in cell_content and '<p>' not in cell_content and '<ul>' not in cell_content and '<ol>' not in cell_content and '<note>' not in cell_content:
-                    lines = [l.strip() for l in cell_content.split('\n') if l.strip()]
-                    cell_content = ''.join('<p>' + l + '</p>' for l in lines)
+                # Final cleanup: ensure no raw newlines remain — wrap any unstructured lines in <p>
+                if '\n' in cell_content:
+                    parts = cell_content.split('\n')
+                    cleaned = ''
+                    for part in parts:
+                        part = part.strip()
+                        if not part:
+                            continue
+                        # Already structured content — keep as-is
+                        if part.startswith('<p>') or part.startswith('<ul>') or part.startswith('<ol>') or part.startswith('<note') or part.startswith('</'):
+                            cleaned += part
+                        else:
+                            cleaned += '<p>' + part + '</p>'
+                    cell_content = cleaned
                 xml += '<entry>' + cell_content + '</entry>\n'
             xml += '</row>\n'
         xml += '</tbody>\n</tgroup>\n</table>\n'
@@ -887,6 +897,52 @@ def _parse_table_block(lines, start_idx):
     return xml, idx
 
 
+def _wrap_entry_lines_in_p(table_xml):
+    """Post-process table XML to wrap raw text lines inside <entry> with <p> tags.
+
+    Finds all <entry>...</entry> blocks and ensures every text line is wrapped in <p>,
+    while preserving existing structured content (<ul>, <ol>, <note>, <uicontrol>).
+    """
+    def _fix_entry(m):
+        content = m.group(1)
+        # If content is already properly structured (all in <p>/<ul>/<note>), skip
+        stripped = content.strip()
+        if not stripped:
+            return '<entry></entry>'
+        # If already wrapped in <p> and no raw newlines outside, keep as-is
+        if stripped.startswith('<p>') and '\n' not in stripped.replace('</p>\n<p>', ''):
+            return '<entry>' + stripped + '</entry>'
+
+        # Split into lines and wrap each non-structured line in <p>
+        lines = content.split('\n')
+        result_parts = []
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            # Already structured — keep as-is
+            if (line.startswith('<p>') or line.startswith('<ul>') or line.startswith('<ol>')
+                    or line.startswith('<note') or line.startswith('</ul>') or line.startswith('</ol>')):
+                result_parts.append(line)
+            # Partial tag content (like closing tags or mid-list) — keep
+            elif line.startswith('</') or line.startswith('<li>') or line.startswith('<entry') or line.startswith('<row'):
+                result_parts.append(line)
+            # Raw text — wrap in <p>
+            else:
+                result_parts.append('<p>' + line + '</p>')
+        return '<entry>' + ''.join(result_parts) + '</entry>'
+
+    # Only process <entry> blocks that are in <tbody> (not <thead>)
+    # Find tbody section and process entries within it
+    tbody_match = re.search(r'(<tbody>)(.*?)(</tbody>)', table_xml, re.DOTALL)
+    if tbody_match:
+        tbody_content = tbody_match.group(2)
+        fixed_tbody = re.sub(r'<entry>(.*?)</entry>', _fix_entry, tbody_content, flags=re.DOTALL)
+        table_xml = table_xml[:tbody_match.start(2)] + fixed_tbody + table_xml[tbody_match.end(2):]
+
+    return table_xml
+
+
 # =============================================================================
 # CONCEPT CONVERSION
 # =============================================================================
@@ -933,6 +989,8 @@ def generate_concept_xml(text):
                 idx += 1
             if idx < len(lines):
                 idx += 1  # skip the END marker
+            # Post-process: wrap raw lines inside <entry> with <p> tags
+            table_xml = _wrap_entry_lines_in_p(table_xml)
             xml_parts.append(table_xml)
             continue
 
