@@ -105,17 +105,19 @@ def _process_table_cell(cell_html):
     # Clean up whitespace
     cell = re.sub(r'\n{3,}', '\n\n', cell).strip()
 
-    # If cell has multiple paragraphs, wrap in <p> tags
+    # Wrap cell content lines in <p> tags (each line = separate paragraph)
     lines = cell.split('\n')
-    # Filter empty lines and check if we need <p> wrapping
+    # Filter empty lines
     non_empty = [l.strip() for l in lines if l.strip()]
-    if len(non_empty) <= 1:
-        # Single line or simple content
-        content = non_empty[0] if non_empty else ''
+    if not non_empty:
+        return ''
+    if len(non_empty) == 1:
+        content = non_empty[0]
         # Don't wrap in <p> if it's already a list or note
         if content.startswith('<ul>') or content.startswith('<ol>') or content.startswith('<note'):
             return content
-        return content
+        # Single short text — wrap in <p> for consistency
+        return '<p>' + content + '</p>'
     else:
         # Multiple lines — wrap each in <p>, but keep lists/notes as-is
         result = ''
@@ -272,21 +274,34 @@ def _preprocess_html_input(html_text):
 
         if is_header_row:
             xml += '<thead>\n<row>\n'
-            for cell in first_row_cells:
+            for i, cell in enumerate(first_row_cells):
                 cell_text = xml_escape(_strip_tags(cell).strip())
-                xml += '<entry>' + cell_text + '</entry>\n'
+                xml += '<entry nameend="col' + str(i+1) + '" namest="col' + str(i+1) + '">' + cell_text + '</entry>\n'
             xml += '</row>\n</thead>\n'
             data_rows = rows[1:]
         else:
-            # Treat first row as header if all cells are short (looks like column names)
+            # Treat first row as header if all cells are short AND look like column labels
+            # (not numeric, not containing = signs which indicate values)
             all_short = all(len(_strip_tags(c).strip()) < 40 for c in first_row_cells)
-            if all_short and len(rows) > 1:
+            first_row_texts = [_strip_tags(c).strip() for c in first_row_cells]
+            looks_like_data = any('=' in t or t.replace('.','').isdigit() or '\n' in _strip_tags(c) for t, c in zip(first_row_texts, first_row_cells))
+
+            if all_short and len(rows) > 1 and not looks_like_data:
                 xml += '<thead>\n<row>\n'
-                for cell in first_row_cells:
+                for i, cell in enumerate(first_row_cells):
                     cell_text = xml_escape(_strip_tags(cell).strip())
-                    xml += '<entry>' + cell_text + '</entry>\n'
+                    xml += '<entry nameend="col' + str(i+1) + '" namest="col' + str(i+1) + '">' + cell_text + '</entry>\n'
                 xml += '</row>\n</thead>\n'
                 data_rows = rows[1:]
+            elif num_cols == 4:
+                # Default 4-column header for parameter tables
+                xml += '<thead>\n<row>\n'
+                xml += '<entry nameend="col1" namest="col1">Parameter Name</entry>\n'
+                xml += '<entry nameend="col2" namest="col2">Values</entry>\n'
+                xml += '<entry nameend="col3" namest="col3">Example</entry>\n'
+                xml += '<entry nameend="col4" namest="col4">Default Value</entry>\n'
+                xml += '</row>\n</thead>\n'
+                data_rows = rows
             else:
                 data_rows = rows
 
@@ -815,8 +830,8 @@ def _parse_table_block(lines, start_idx):
 
     # First row is header
     xml += "<thead>\n<row>\n"
-    for cell in header_cells:
-        xml += "<entry>" + xml_escape(cell) + "</entry>\n"
+    for i, cell in enumerate(header_cells):
+        xml += '<entry nameend="col' + str(i+1) + '" namest="col' + str(i+1) + '">' + xml_escape(cell) + "</entry>\n"
     xml += "</row>\n</thead>\n"
 
     # Remaining rows (skip separator lines like |---|---|)
@@ -828,8 +843,9 @@ def _parse_table_block(lines, start_idx):
             continue
         xml += "<row>\n"
         for cell in cells:
-            # Apply inline DITA tags to cell content
-            xml += "<entry>" + _apply_inline_tags(cell, is_task=False) + "</entry>\n"
+            # Apply inline DITA tags to cell content, wrap in <p>
+            escaped_cell = _apply_inline_tags(cell, is_task=False)
+            xml += "<entry><p>" + escaped_cell + "</p></entry>\n"
         xml += "</row>\n"
     xml += "</tbody>\n</tgroup>\n</table>\n"
 
