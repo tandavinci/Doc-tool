@@ -774,7 +774,14 @@ def _is_dl_block_start(line):
 
 
 def _parse_table_block(lines, start_idx):
-    """Parse a table block starting from start_idx. Returns (xml_string, end_idx)."""
+    """Parse a table block starting from start_idx. Returns (xml_string, end_idx).
+
+    Generates proper DITA CALS table with:
+    - <colspec> elements with colname and colwidth
+    - <thead> from first row (header)
+    - <tbody> with data rows
+    - Inline DITA tags applied to cell content
+    """
     table_lines = []
     idx = start_idx
     while idx < len(lines) and _is_table_line(lines[idx]):
@@ -785,16 +792,20 @@ def _parse_table_block(lines, start_idx):
         return "", start_idx
 
     # Parse header and rows
-    xml = "<table>\n<tgroup>\n"
-
-    # First row is header
     header_cells = [c.strip() for c in table_lines[0].split('|') if c.strip()]
     num_cols = len(header_cells)
-    xml += f'<colspec colnum="1" colname="col1"/>\n' * 0  # skip colspec for simplicity
 
+    xml = "<table>\n"
+    xml += '<tgroup cols="' + str(num_cols) + '">\n'
+
+    # Add colspec for each column
+    for i in range(1, num_cols + 1):
+        xml += '<colspec colname="col' + str(i) + '" colwidth="1*"/>\n'
+
+    # First row is header
     xml += "<thead>\n<row>\n"
     for cell in header_cells:
-        xml += "  <entry>" + xml_escape(cell) + "</entry>\n"
+        xml += "<entry>" + xml_escape(cell) + "</entry>\n"
     xml += "</row>\n</thead>\n"
 
     # Remaining rows (skip separator lines like |---|---|)
@@ -806,7 +817,8 @@ def _parse_table_block(lines, start_idx):
             continue
         xml += "<row>\n"
         for cell in cells:
-            xml += "  <entry>" + xml_escape(cell) + "</entry>\n"
+            # Apply inline DITA tags to cell content
+            xml += "<entry>" + _apply_inline_tags(cell, is_task=False) + "</entry>\n"
         xml += "</row>\n"
     xml += "</tbody>\n</tgroup>\n</table>\n"
 
