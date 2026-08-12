@@ -87,7 +87,8 @@ def _process_table_cell(cell_html):
     # Preserve <ul>, <ol>, <uicontrol>, <note> tags — strip all other HTML
     cell = re.sub(r'<(?!/?(?:ul|ol|li|note|uicontrol))[^>]+>', '', cell)
 
-    # Decode entities
+    # Normalize line endings and decode entities
+    cell = cell.replace('\r\n', '\n').replace('\r', '\n')
     cell = cell.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&nbsp;', ' ')
 
     # Escape angle-bracket codes that look like abbreviations (e.g., <CR>, <MO>, <DO/RO>)
@@ -342,6 +343,10 @@ def _preprocess_html_input(html_text):
             for cell in cells:
                 # Process cell content: preserve lists, notes, paragraphs
                 cell_content = _process_table_cell(cell)
+                # If cell_content has raw newlines but no <p> wrapping, fix it
+                if '\n' in cell_content and '<p>' not in cell_content and '<ul>' not in cell_content and '<ol>' not in cell_content and '<note>' not in cell_content:
+                    lines = [l.strip() for l in cell_content.split('\n') if l.strip()]
+                    cell_content = ''.join('<p>' + l + '</p>' for l in lines)
                 xml += '<entry>' + cell_content + '</entry>\n'
             xml += '</row>\n'
         xml += '</tbody>\n</tgroup>\n</table>\n'
