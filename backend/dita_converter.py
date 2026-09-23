@@ -561,6 +561,23 @@ def _preprocess_html_input(html_text):
             processed_parts.append(stripped)
     text = ''.join(processed_parts)
 
+    # Normalize list markers that arrived as bold numbers/letters.
+    # Word/Docs often emit list numbers as bold spans, producing lines like
+    #   "{{BOLD:1}}<tab>Create a thread..."  or  "{{BOLD:a}}) Download..."
+    # Convert these into real ordered-list lines ("1. Create a thread...") so
+    # they are recognized as steps rather than treated as bold UI controls.
+    def _normalize_bold_list_marker(m):
+        marker = m.group(1).strip()
+        rest = m.group(2)
+        # Only treat pure numbers or single letters as list markers
+        if re.fullmatch(r'\d+', marker) or re.fullmatch(r'[A-Za-z]', marker):
+            return marker + '. ' + rest
+        return m.group(0)
+
+    text = re.sub(
+        r'^\s*\{\{BOLD:([^}]+)\}\}[\.\):]?[ \t]+(.*)$',
+        _normalize_bold_list_marker, text, flags=re.MULTILINE)
+
     # Merge broken lines: fix contenteditable wrapping and split bullet+text
     # Skip lines inside DITA table blocks
     lines = text.split('\n')
