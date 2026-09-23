@@ -561,22 +561,35 @@ def _preprocess_html_input(html_text):
             processed_parts.append(stripped)
     text = ''.join(processed_parts)
 
-    # Normalize list markers that arrived as bold numbers/letters.
-    # Word/Docs often emit list numbers as bold spans, producing lines like
-    #   "{{BOLD:1}}<tab>Create a thread..."  or  "{{BOLD:a}}) Download..."
-    # Convert these into real ordered-list lines ("1. Create a thread...") so
-    # they are recognized as steps rather than treated as bold UI controls.
-    def _normalize_bold_list_marker(m):
+    # Normalize list markers at the start of a line into real ordered-list
+    # markers ("1. text") so they are recognized as steps. This handles the
+    # many ways Word/Docs paste renders list numbers/letters:
+    #   "{{BOLD:1}}<tab>Create..."   bold number + separator
+    #   "{{BOLD:1}}Create..."        bold number glued to the text
+    #   "1<tab>Create..." / "1 Create..."  plain number + separator
+    #   "a) Download..." handled elsewhere by _is_ordered_list_item
+    def _norm_bold_marker(m):
         marker = m.group(1).strip()
-        rest = m.group(2)
-        # Only treat pure numbers or single letters as list markers
-        if re.fullmatch(r'\d+', marker) or re.fullmatch(r'[A-Za-z]', marker):
-            return marker + '. ' + rest
-        return m.group(0)
+        sep = m.group(2)
+        rest = m.group(3)
+        if not (re.fullmatch(r'\d+', marker) or re.fullmatch(r'[A-Za-z]', marker)):
+            return m.group(0)
+        # If glued (no separator), require the text to start with a capital
+        # letter so we don't split a word like "{{BOLD:S}}ave".
+        if not sep and not (rest[:1].isupper()):
+            return m.group(0)
+        return marker + '. ' + rest.lstrip()
 
+    # Bold-number/letter marker, optional punctuation, optional separator, text
     text = re.sub(
-        r'^\s*\{\{BOLD:([^}]+)\}\}[\.\):]?[ \t]+(.*)$',
-        _normalize_bold_list_marker, text, flags=re.MULTILINE)
+        r'^[ \t]*\{\{BOLD:([^}]+)\}\}[\.\):]?([ \t]*)(\S.*)$',
+        _norm_bold_marker, text, flags=re.MULTILINE)
+
+    # Plain number/letter followed by a TAB (or 2+ spaces) then text — a list
+    # marker even without a trailing period (common Word tabbed lists).
+    text = re.sub(
+        r'^[ \t]*(\d+|[A-Za-z])(?:\t+|[ ]{2,})(\S.*)$',
+        lambda m: m.group(1) + '. ' + m.group(2), text, flags=re.MULTILINE)
 
     # Merge broken lines: fix contenteditable wrapping and split bullet+text
     # Skip lines inside DITA table blocks
