@@ -321,16 +321,13 @@ def _preprocess_html_input(html_text):
     # Also strip any standalone base64 data blocks
     html_text = re.sub(r'data:image/[a-z+]+;base64,[A-Za-z0-9+/=\s]{100,}', '', html_text)
 
-    # Protect literal code/markup blocks (e.g. a pasted XML configuration sample)
-    # BEFORE any HTML processing, so their angle-bracket content is preserved as
-    # a <codeblock> instead of being stripped or misread as an HTML table.
-    html_text = _protect_literal_code_blocks(html_text)
-
     # Check if this is actually HTML (has HTML tags like <p>, <div>, etc.)
     # A lone < in plain text (like "Qty < Safety") should NOT trigger HTML processing
     if not re.search(r'<(?:p|div|ul|ol|li|h[1-6]|strong|em|b|i|table|br|span|a)\b', html_text, re.IGNORECASE):
-        # Not HTML — handle markdown code fences/inline code, then bold
-        plain = _preprocess_code_markers(html_text)
+        # Not HTML — protect literal code blocks, then handle markdown code
+        # fences/inline code, then bold.
+        plain = _protect_literal_code_blocks(html_text)
+        plain = _preprocess_code_markers(plain)
         return _preprocess_markdown_bold(plain)
 
     # Use regex-based HTML parsing (no external dependencies)
@@ -416,6 +413,13 @@ def _preprocess_html_input(html_text):
         first_row_cells = re.findall(r'<t[hd][^>]*>(.*?)</t[hd]>', rows[0], re.DOTALL | re.IGNORECASE)
         num_cols = len(first_row_cells)
         if num_cols == 0:
+            return ''
+
+        # Drop layout/spacer tables that carry no textual content (common in
+        # Word/Docs paste). If every cell is empty after stripping tags, the
+        # table is noise and would otherwise leak raw table XML into steps.
+        all_cells = re.findall(r'<t[hd][^>]*>(.*?)</t[hd]>', table_html, re.DOTALL | re.IGNORECASE)
+        if not any(_strip_tags(c).strip() for c in all_cells):
             return ''
 
         xml = '\n{{DITA_TABLE_START}}\n'
@@ -1326,6 +1330,8 @@ def _render_codeblock_marker(line):
     m = re.match(r'^\s*\{\{CODEBLOCK:(.*)\}\}\s*$', line, re.DOTALL)
     body = m.group(1) if m else ''
     body = body.replace('{{NL}}', '\n')
+    # Collapse runs of blank lines (from block-element paste) to a single break
+    body = re.sub(r'\n[ \t]*\n+', '\n', body).strip('\n')
     return '<codeblock>' + xml_escape(body) + '</codeblock>\n'
 
 
@@ -1646,6 +1652,23 @@ def generate_task_xml(text):
             idx += 1
             continue
 
+        # DITA table block (pre-converted from an HTML table) — wrap in a step's <info>.
+        if line.strip() == '{{DITA_TABLE_START}}':
+            idx += 1
+            table_xml = ''
+            while idx < len(lines) and lines[idx].strip() != '{{DITA_TABLE_END}}':
+                table_xml += lines[idx] + '\n'
+                idx += 1
+            if idx < len(lines):
+                idx += 1  # skip END marker
+            table_xml = _wrap_entry_lines_in_p(table_xml)
+            xml_parts.append("<step>\n")
+            xml_parts.append("<cmd>Refer to the following table:</cmd>\n")
+            xml_parts.append("<info>\n" + table_xml + "</info>\n")
+            xml_parts.append("</step>\n")
+            has_steps = True
+            continue
+
         # Standalone code block — emit as a step containing <info><codeblock>
         if _is_codeblock_marker(line):
             xml_parts.append("<step>\n")
@@ -1767,6 +1790,18 @@ def _parse_step_info(lines, start_idx):
             if peek >= len(lines) or _is_ordered_list_item(lines[peek].strip()):
                 break
             idx += 1
+            continue
+
+        # DITA table block inside a step
+        if line.strip() == '{{DITA_TABLE_START}}':
+            idx += 1
+            table_xml = ''
+            while idx < len(lines) and lines[idx].strip() != '{{DITA_TABLE_END}}':
+                table_xml += lines[idx] + '\n'
+                idx += 1
+            if idx < len(lines):
+                idx += 1
+            info_parts.append(_wrap_entry_lines_in_p(table_xml))
             continue
 
         # Code block inside step
