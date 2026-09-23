@@ -1044,6 +1044,15 @@ def generate_concept_xml(text):
             idx += 1
             continue
 
+        # Check for definition list (field name + description pairs).
+        # This must be tested BEFORE the Title Case heading check, because a
+        # short field-name label followed immediately by a description line
+        # otherwise gets misclassified as a section heading.
+        if _is_dl_candidate(lines, idx):
+            dl_xml, idx = _parse_definition_list(lines, idx, is_task=False)
+            xml_parts.append(dl_xml)
+            continue
+
         # Check for section title (from ALL CAPS heading preprocessing)
         if _is_heading_line(line):
             if in_section:
@@ -1143,60 +1152,103 @@ def _parse_list_in_note(lines, start_idx):
     return xml, idx
 
 
-def _is_dl_candidate(lines, idx):
-    """Check if current position looks like a definition list.
+def _next_nonblank_idx(lines, idx):
+    """Return the index of the next non-blank line at or after idx, or len(lines)."""
+    while idx < len(lines) and not lines[idx].strip():
+        idx += 1
+    return idx
 
-    Pattern: a short line (field name) followed by an indented or longer
-    description line, repeating.
+
+def _is_single_dl_pair(lines, idx):
+    """Check whether a single term/description pair starts at idx.
+
+    A term is a short label (no trailing sentence punctuation) that is
+    followed (after any blank lines) by a longer description line. Blank
+    lines between the term and description are tolerated because Word/HTML
+    paste commonly inserts them.
+    Returns (is_pair, description_idx).
     """
-    if idx + 1 >= len(lines):
+    if idx >= len(lines):
+        return False, idx
+    term = lines[idx].strip()
+    if not term or len(term) >= 60 or term.endswith(('.', ',', ';', ':', '!', '?')):
+        return False, idx
+    if (_is_ordered_list_item(term) or _is_unordered_list_item(term)
+            or _is_note_line(term) or term.startswith('{{')):
+        return False, idx
+    desc_idx = _next_nonblank_idx(lines, idx + 1)
+    if desc_idx >= len(lines):
+        return False, idx
+    next_line = lines[desc_idx].strip()
+    if not next_line:
+        return False, idx
+    # A multi-word Title Case heading followed by a full sentence (ending in a
+    # period) is a section title + intro paragraph, not a field/description
+    # pair. Field labels are typically one or two words.
+    if (len(term.split()) >= 3 and _is_heading_line(term)
+            and next_line.endswith('.')):
+        return False, idx
+    # Description must look like prose: starts lowercase, or is a longer sentence.
+    if next_line[0].islower() or len(next_line) > 60:
+        return True, desc_idx
+    return False, idx
+
+
+def _is_dl_candidate(lines, idx):
+    """Check if current position starts a definition list (field list).
+
+    Pattern: a short line (field name) followed by a longer description
+    line, repeating. To avoid misclassifying a heading + paragraph as a
+    definition list, at least TWO consecutive term/description pairs must
+    be present before the block is treated as a <dl>.
+    """
+    is_pair, desc_idx = _is_single_dl_pair(lines, idx)
+    if not is_pair:
         return False
-    current = lines[idx].strip()
-    next_line = lines[idx + 1].strip() if idx + 1 < len(lines) else ""
-    # Short label (< 60 chars, no period at end) followed by a description
-    if (current and len(current) < 60 and not current.endswith('.')
-            and not _is_ordered_list_item(current)
-            and not _is_unordered_list_item(current)
-            and not _is_note_line(current)
-            and next_line and len(next_line) > len(current)
-            and not _is_heading_line(current)):
-        # Check if the next line looks like a description (starts lowercase or is longer)
-        if next_line[0].islower() or len(next_line) > 60:
-            return True
-    return False
+    # Advance past this pair's description (and its continuation lines)
+    scan = desc_idx + 1
+    while scan < len(lines) and lines[scan].strip():
+        # Stop the description if the next line itself starts a new pair
+        if _is_single_dl_pair(lines, scan)[0]:
+            break
+        scan += 1
+    scan = _next_nonblank_idx(lines, scan)
+    # Require a second pair to confirm this is a field list, not a heading.
+    return _is_single_dl_pair(lines, scan)[0]
 
 
 def _parse_definition_list(lines, idx, is_task=False):
-    """Parse a definition list (field name + description pairs) into <dl> XML."""
+    """Parse a definition list (field name + description pairs) into <dl> XML.
+
+    Tolerates blank lines between the term and its description, and between
+    consecutive entries (common with Word/HTML paste).
+    """
     xml = "<dl>\n"
     while idx < len(lines):
+        # Skip blank lines before a term
+        idx = _next_nonblank_idx(lines, idx)
+        if idx >= len(lines):
+            break
+
+        is_pair, desc_idx = _is_single_dl_pair(lines, idx)
+        if not is_pair:
+            break
+
         term_line = lines[idx].strip()
-        if not term_line:
-            idx += 1
-            continue
-
-        # Check if this still looks like a DL entry
-        if idx + 1 >= len(lines):
-            break
-        next_line = lines[idx + 1].strip() if idx + 1 < len(lines) else ""
-        if not (term_line and len(term_line) < 60 and not term_line.endswith('.')
-                and next_line and (next_line[0].islower() or len(next_line) > 60)):
-            break
-
         # Term
         xml += "<dlentry>\n"
         xml += "<dt>" + _apply_inline_tags(term_line, is_task=is_task) + "</dt>\n"
-        idx += 1
 
-        # Description (collect continuation lines)
+        # Move to the description
+        idx = desc_idx
+
+        # Description (collect continuation lines until the next term/pair)
         desc_parts = []
         while idx < len(lines) and lines[idx].strip():
-            desc_line = lines[idx].strip()
-            # Stop if we hit another short label (next DL entry)
-            if (len(desc_line) < 60 and not desc_line.endswith('.')
-                    and idx + 1 < len(lines) and lines[idx + 1].strip()
-                    and (lines[idx + 1].strip()[0].islower() or len(lines[idx + 1].strip()) > 60)):
+            # Stop if the current line begins a new term/description pair
+            if desc_parts and _is_single_dl_pair(lines, idx)[0]:
                 break
+            desc_line = lines[idx].strip()
             # Check for note inside description
             if _is_note_line(desc_line):
                 note_text = _strip_note_prefix(desc_line)
@@ -1217,10 +1269,6 @@ def _parse_definition_list(lines, idx, is_task=False):
 
         xml += "<dd>" + " ".join(desc_parts) + "</dd>\n"
         xml += "</dlentry>\n"
-
-        # Skip blank lines between entries
-        while idx < len(lines) and not lines[idx].strip():
-            idx += 1
 
     xml += "</dl>\n"
     return xml, idx
