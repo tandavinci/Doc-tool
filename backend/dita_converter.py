@@ -241,6 +241,64 @@ def _preprocess_code_markers(text):
     return text
 
 
+def _looks_like_code_line(line):
+    """Heuristic: a line that is essentially a standalone markup/code element.
+
+    Matches things like:
+        <ConfigurationSettings>
+        <ftusername>sa</ftusername>
+        <!-- a comment -->
+        </machine>
+    Ordinary prose containing a stray '<' (e.g. "Qty < 5") is NOT matched
+    because it must START with '<' plus a tag-name/slash/bang/question char.
+    """
+    s = line.strip()
+    if not s:
+        return False
+    return bool(re.match(r'^</?[A-Za-z!?][^\n]*>$', s)) or bool(re.match(r'^<!--.*-->$', s))
+
+
+def _protect_literal_code_blocks(text):
+    """Wrap contiguous runs of markup/code lines in {{CODEBLOCK:...}} markers.
+
+    A run of 2+ consecutive code-looking lines (blank lines allowed between
+    them) is treated as a code sample. This runs before HTML detection so a
+    pasted XML block is preserved verbatim rather than parsed as HTML.
+    """
+    if '<' not in text:
+        return text
+
+    lines = text.replace('\r\n', '\n').replace('\r', '\n').split('\n')
+    out = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        if _looks_like_code_line(lines[i]):
+            # Gather the run, allowing single blank lines between code lines
+            block = []
+            j = i
+            while j < n:
+                if _looks_like_code_line(lines[j]):
+                    block.append(lines[j].rstrip())
+                    j += 1
+                elif lines[j].strip() == '' and j + 1 < n and _looks_like_code_line(lines[j + 1]):
+                    block.append('')  # keep internal blank line
+                    j += 1
+                else:
+                    break
+            # Only treat as a code block if it has at least 2 real code lines
+            real = [b for b in block if b.strip()]
+            if len(real) >= 2:
+                body = '\n'.join(block).strip('\n')
+                out.append('{{CODEBLOCK:' + body.replace('\n', '{{NL}}') + '}}')
+                i = j
+                continue
+            # Otherwise fall through and emit the single line as-is
+        out.append(lines[i])
+        i += 1
+    return '\n'.join(out)
+
+
 def _preprocess_html_input(html_text):
     """Convert HTML input (from rich paste) into structured plain text.
 
@@ -262,6 +320,11 @@ def _preprocess_html_input(html_text):
     html_text = re.sub(r'src=\'data:image/[^\']*\'', "src=''", html_text)
     # Also strip any standalone base64 data blocks
     html_text = re.sub(r'data:image/[a-z+]+;base64,[A-Za-z0-9+/=\s]{100,}', '', html_text)
+
+    # Protect literal code/markup blocks (e.g. a pasted XML configuration sample)
+    # BEFORE any HTML processing, so their angle-bracket content is preserved as
+    # a <codeblock> instead of being stripped or misread as an HTML table.
+    html_text = _protect_literal_code_blocks(html_text)
 
     # Check if this is actually HTML (has HTML tags like <p>, <div>, etc.)
     # A lone < in plain text (like "Qty < Safety") should NOT trigger HTML processing
@@ -444,6 +507,9 @@ def _preprocess_html_input(html_text):
             processed_parts.append(part)  # preserve table XML as-is
         else:
             stripped = _strip_tags(part)
+            # After entity decoding, a pasted XML/code block reappears as
+            # literal <tag> lines — protect those as a code block now.
+            stripped = _protect_literal_code_blocks(stripped)
             stripped = _preprocess_code_markers(stripped)
             stripped = _preprocess_markdown_bold(stripped)
             processed_parts.append(stripped)
@@ -830,14 +896,28 @@ def _strip_note_prefix(line):
     return content
 
 
+# Ordered-list markers:
+#   "1. ", "1) ", "1 <tab>"  — numbered
+#   "a. ", "a) ", "a <tab>"  — lettered sub-steps (single letter)
+_ORDERED_NUM_RE = re.compile(r'^\d+[\.\)]\s+|^\d+\t+\s*')
+_ORDERED_ALPHA_RE = re.compile(r'^[a-zA-Z][\.\)]\s+|^[a-zA-Z]\t+\s*')
+
+
 def _is_ordered_list_item(line):
-    """Check if a line is a numbered list item."""
-    return bool(re.match(r'^\d+[\.\)]\s+', line))
+    """Check if a line is a numbered or lettered list item.
+
+    Recognizes '1.', '1)', '1<tab>' and single-letter markers 'a.', 'a)',
+    'a<tab>' (common for sub-steps pasted from Word).
+    """
+    return bool(_ORDERED_NUM_RE.match(line)) or bool(_ORDERED_ALPHA_RE.match(line))
 
 
 def _strip_ordered_prefix(line):
-    """Remove the number prefix from an ordered list item."""
-    return re.sub(r'^\d+[\.\)]\s+', '', line)
+    """Remove the number/letter marker prefix from an ordered list item."""
+    result = _ORDERED_NUM_RE.sub('', line, count=1)
+    if result == line:
+        result = _ORDERED_ALPHA_RE.sub('', line, count=1)
+    return result
 
 
 def _is_unordered_list_item(line):
@@ -1482,10 +1562,31 @@ def generate_task_xml(text):
     has_steps = False
     in_steps = False
 
-    # Look for the first numbered step to determine where shortdesc ends
+    # Look for the first content that starts the step body. This can be a
+    # numbered step, a bulleted/numbered field list, or a lead-in line ending
+    # with ':'. A numbered *field* line (e.g. "1 Machine Server: desc") is NOT
+    # a procedural step, so it is treated as field-list content, not a step.
     first_step_idx = None
     for i, line in enumerate(lines):
-        if _is_ordered_list_item(line.strip()):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if i == 0 and _is_heading_line(stripped):
+            continue  # title line
+        if (_is_bulleted_fieldlist_candidate(lines, i)
+                or _is_numbered_fieldlist_candidate(lines, i)):
+            first_step_idx = i
+            break
+        # A ':' lead-in only starts the body if it introduces bullet/code/field
+        # content; otherwise it is context (goes into shortdesc).
+        if stripped.endswith(':') and i > 0:
+            nb = _next_nonblank_idx(lines, i + 1)
+            if nb < len(lines) and (
+                    _is_bulleted_fieldlist_candidate(lines, nb)
+                    or _is_codeblock_marker(lines[nb])):
+                first_step_idx = i
+                break
+        if _is_ordered_list_item(stripped) and not _is_numbered_field_line(stripped):
             first_step_idx = i
             break
 
@@ -1566,9 +1667,22 @@ def generate_task_xml(text):
             has_steps = True
             continue
 
+        # A lead-in line ending with ':' followed by a code block. Emit as a
+        # step whose <cmd> is the lead-in and <info> holds the <codeblock>.
+        stripped_line = line.strip()
+        _cb_nb = _next_nonblank_idx(lines, idx + 1)
+        if (stripped_line.endswith(':')
+                and _cb_nb < len(lines) and _is_codeblock_marker(lines[_cb_nb])):
+            xml_parts.append("<step>\n")
+            xml_parts.append("<cmd>" + _apply_inline_tags(stripped_line, is_task=True) + "</cmd>\n")
+            xml_parts.append("<info>\n" + _render_codeblock_marker(lines[_cb_nb]) + "</info>\n")
+            xml_parts.append("</step>\n")
+            idx = _cb_nb + 1
+            has_steps = True
+            continue
+
         # A lead-in line ending with ':' followed by a bulleted field list.
         # Emit the lead-in as the step command and the field list as its <info>.
-        stripped_line = line.strip()
         if (stripped_line.endswith(':')
                 and _is_bulleted_fieldlist_candidate(lines, _next_nonblank_idx(lines, idx + 1))):
             fl_start = _next_nonblank_idx(lines, idx + 1)
@@ -1682,6 +1796,16 @@ def _parse_step_info(lines, start_idx):
         if _is_unordered_list_item(line.strip()):
             list_xml, idx = _parse_unordered_list(lines, idx, is_task=True)
             info_parts.append(list_xml)
+            continue
+
+        # Lead-in line followed by a code block (e.g. "... in this format:"
+        # then a pasted XML sample). Emit the lead-in as a paragraph and the
+        # code as a <codeblock>, never as a field list.
+        nb = _next_nonblank_idx(lines, idx + 1)
+        if nb < len(lines) and _is_codeblock_marker(lines[nb]):
+            info_parts.append("<p>" + _apply_inline_tags(line.strip(), is_task=True) + "</p>\n")
+            info_parts.append(_render_codeblock_marker(lines[nb]))
+            idx = nb + 1
             continue
 
         # Field list detection (pattern: short label then description)
@@ -1800,6 +1924,9 @@ def _parse_bulleted_fieldlist(lines, idx):
         while idx < len(lines) and lines[idx].strip():
             raw = lines[idx]
             cur = raw.strip()
+            # Stop at a code block marker (handled as its own block)
+            if _is_codeblock_marker(cur):
+                break
             # Stop when the next bullet field begins
             if _is_unordered_list_item(cur):
                 break
@@ -1909,6 +2036,9 @@ def _parse_fieldlist(lines, idx):
         desc_parts = []
         while idx < len(lines) and lines[idx].strip():
             desc_line = lines[idx].strip()
+            # Stop at a code block marker (handled as its own block)
+            if _is_codeblock_marker(desc_line):
+                break
             # Stop if we hit another short label (next field entry)
             if (len(desc_line) < 50 and not desc_line.endswith('.')
                     and idx + 1 < len(lines) and lines[idx + 1].strip()
