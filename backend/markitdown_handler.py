@@ -27,11 +27,16 @@ def _get_markitdown():
             from markitdown import MarkItDown
             _md_instance = MarkItDown(enable_plugins=False)
             logger.info("MarkItDown initialized successfully")
-        except ImportError:
+        except ImportError as e:
             raise RuntimeError(
-                "MarkItDown library is not installed. "
-                "Run: pip install 'markitdown[all]'"
+                "MarkItDown library is not installed or failed to load. "
+                "Run: pip install 'markitdown[all]'. "
+                f"Import error: {e}"
             )
+        except Exception as e:
+            # Surface the real failure (e.g. a missing submodule in a bundled
+            # build) instead of masking it as "not installed".
+            raise RuntimeError(f"MarkItDown failed to initialize: {e}")
     return _md_instance
 
 
