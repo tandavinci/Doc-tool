@@ -16,6 +16,7 @@ Rules applied:
 - <note> for note blocks (no <p> inside)
 - <ol>, <ul> for lists
 - <dl>/<dlentry>/<dt>/<dd> for field definitions in concept
+- <codeph> for inline code spans; <codeblock> for multi-line code
 - <section> only when explicitly needed
 - <menucascade> for ">" paths in task files
 - <fieldlist>/<field>/<fieldname>/<fielddesc> for task field lists
@@ -204,6 +205,42 @@ def _preprocess_markdown_bold(text):
     result = re.sub(r'\{\{BOLD:\s*\}\}', '', result)
     return result
 
+
+def _preprocess_code_markers(text):
+    """Convert markdown-style code into {{CODEPH:...}} / {{CODEBLOCK:...}} markers.
+
+    - Fenced code blocks (```...```) become {{CODEBLOCK:...}} on their own line.
+    - Inline `code` spans become {{CODEPH:...}} markers.
+
+    The marker content is stored raw (not yet XML-escaped); escaping happens
+    when the marker is resolved into a <codeph>/<codeblock> tag. Markers are
+    placed on their own lines for codeblocks so the block-level parser can
+    detect them.
+    """
+    if not text:
+        return text
+
+    # Fenced code blocks first: ```lang\n ... \n``` (multiline). Store raw content.
+    def _fence_replacer(m):
+        body = m.group(1)
+        # Drop an optional language token on the opening fence line
+        if '\n' in body:
+            first, rest = body.split('\n', 1)
+            if first.strip() and ' ' not in first.strip() and len(first.strip()) < 20:
+                body = rest
+        body = body.strip('\n')
+        # Encode internal newlines so the marker stays on one logical line
+        body = body.replace('\n', '{{NL}}')
+        return '\n{{CODEBLOCK:' + body + '}}\n'
+
+    text = re.sub(r'```(.*?)```', _fence_replacer, text, flags=re.DOTALL)
+
+    # Inline code spans: `code` → {{CODEPH:code}} (single backticks, no newline inside)
+    text = re.sub(r'`([^`\n]+?)`', lambda m: '{{CODEPH:' + m.group(1) + '}}', text)
+
+    return text
+
+
 def _preprocess_html_input(html_text):
     """Convert HTML input (from rich paste) into structured plain text.
 
@@ -229,14 +266,38 @@ def _preprocess_html_input(html_text):
     # Check if this is actually HTML (has HTML tags like <p>, <div>, etc.)
     # A lone < in plain text (like "Qty < Safety") should NOT trigger HTML processing
     if not re.search(r'<(?:p|div|ul|ol|li|h[1-6]|strong|em|b|i|table|br|span|a)\b', html_text, re.IGNORECASE):
-        # Not HTML — check for markdown-style bold (**text**)
-        return _preprocess_markdown_bold(html_text)
+        # Not HTML — handle markdown code fences/inline code, then bold
+        plain = _preprocess_code_markers(html_text)
+        return _preprocess_markdown_bold(plain)
 
     # Use regex-based HTML parsing (no external dependencies)
     text = html_text
 
     # Remove style, script, and head tags entirely
     text = re.sub(r'<(style|script|head)[^>]*>.*?</\1>', '', text, flags=re.DOTALL | re.IGNORECASE)
+
+    # Preserve code content BEFORE other tags are stripped.
+    # <pre> (optionally wrapping <code>) → multi-line code block.
+    def _pre_replacer(m):
+        inner = m.group(1)
+        # Unwrap a nested <code> element if present
+        inner = re.sub(r'</?code[^>]*>', '', inner, flags=re.IGNORECASE)
+        body = _strip_tags(inner)
+        body = body.replace('\r\n', '\n').replace('\r', '\n').strip('\n')
+        body = body.replace('\n', '{{NL}}')
+        return '\n{{CODEBLOCK:' + body + '}}\n'
+
+    text = re.sub(r'<pre[^>]*>(.*?)</pre>', _pre_replacer, text, flags=re.DOTALL | re.IGNORECASE)
+
+    # Inline code elements → {{CODEPH:...}} markers.
+    def _codeph_replacer(m):
+        body = re.sub(r'\s+', ' ', _strip_tags(m.group(1))).strip()
+        if not body:
+            return ''
+        return '{{CODEPH:' + body + '}}'
+
+    text = re.sub(r'<(?:code|tt|kbd|samp)\b[^>]*>(.*?)</(?:code|tt|kbd|samp)>',
+                  _codeph_replacer, text, flags=re.DOTALL | re.IGNORECASE)
 
     # Convert headings to uppercase lines (will be detected as sections)
     for level in range(1, 7):
@@ -383,6 +444,7 @@ def _preprocess_html_input(html_text):
             processed_parts.append(part)  # preserve table XML as-is
         else:
             stripped = _strip_tags(part)
+            stripped = _preprocess_code_markers(stripped)
             stripped = _preprocess_markdown_bold(stripped)
             processed_parts.append(stripped)
     text = ''.join(processed_parts)
@@ -432,6 +494,8 @@ def _preprocess_html_input(html_text):
         if (merged and merged[-1] and stripped
                 and not _is_unordered_list_item(stripped)
                 and not stripped.startswith('{{BOLD:')
+                and not stripped.startswith('{{CODEBLOCK:')
+                and not merged[-1].strip().startswith('{{CODEBLOCK:')
                 and not re.match(r'^\d+[\.\)]', stripped)
                 and not re.match(r'^(Note|Warning|Caution|Tip|Important)', stripped, re.IGNORECASE)):
             prev = merged[-1].rstrip()
@@ -631,6 +695,8 @@ def _apply_inline_tags(text, is_task=False):
     result = _apply_uicontrol(escaped)
     result = _apply_wintitle(result)
     result = _apply_userinput(result)
+    # Resolve inline code markers into <codeph> (content already XML-escaped above)
+    result = re.sub(r'\{\{CODEPH:(.*?)\}\}', r'<codeph>\1</codeph>', result)
     return result
 
 
@@ -979,6 +1045,12 @@ def generate_concept_xml(text):
             idx += 1
             continue
 
+        # Check for standalone code block marker
+        if _is_codeblock_marker(line):
+            xml_parts.append(_render_codeblock_marker(line))
+            idx += 1
+            continue
+
         # Check for DITA table (pre-converted from HTML table in preprocessor)
         if line.strip() == '{{DITA_TABLE_START}}':
             # Collect all lines until {{DITA_TABLE_END}} and output as-is
@@ -1150,6 +1222,23 @@ def _parse_list_in_note(lines, start_idx):
     else:
         xml = ""
     return xml, idx
+
+
+def _is_codeblock_marker(line):
+    """Check if a line is a standalone {{CODEBLOCK:...}} marker."""
+    return line.strip().startswith('{{CODEBLOCK:') and line.strip().endswith('}}')
+
+
+def _render_codeblock_marker(line):
+    """Render a {{CODEBLOCK:...}} marker into a <codeblock> element.
+
+    The stored body has newlines encoded as {{NL}}; they are restored and the
+    content is XML-escaped so code containing <, >, & stays valid.
+    """
+    m = re.match(r'^\s*\{\{CODEBLOCK:(.*)\}\}\s*$', line, re.DOTALL)
+    body = m.group(1) if m else ''
+    body = body.replace('{{NL}}', '\n')
+    return '<codeblock>' + xml_escape(body) + '</codeblock>\n'
 
 
 def _next_nonblank_idx(lines, idx):
@@ -1351,6 +1440,15 @@ def generate_task_xml(text):
             idx += 1
             continue
 
+        # Standalone code block — emit as a step containing <info><codeblock>
+        if _is_codeblock_marker(line):
+            xml_parts.append("<step>\n")
+            xml_parts.append("<cmd>Code sample:</cmd>\n")
+            xml_parts.append("<info>" + _render_codeblock_marker(line) + "</info>\n")
+            xml_parts.append("</step>\n")
+            idx += 1
+            continue
+
         # Numbered step
         if _is_ordered_list_item(line.strip()):
             cmd_text = _strip_ordered_prefix(line.strip()).strip()
@@ -1413,6 +1511,12 @@ def _parse_step_info(lines, start_idx):
                 peek += 1
             if peek >= len(lines) or _is_ordered_list_item(lines[peek].strip()):
                 break
+            idx += 1
+            continue
+
+        # Code block inside step
+        if _is_codeblock_marker(line):
+            info_parts.append(_render_codeblock_marker(line))
             idx += 1
             continue
 
