@@ -11,6 +11,10 @@ bold/italic, notes) before applying DITA conversion rules.
 
 Rules applied:
 - <uicontrol> for words before: field, tab, button, menu, widget, check box, option
+- <uicontrol> for CamelCase UI identifiers (e.g. FTSFMachineRunning); paths/filenames are left untouched
+- <note> whenever "Note:" (or Warning/Caution/etc.) appears, even mid-paragraph
+- Original letter casing is preserved (headings are NOT forced to upper case)
+- Sentences and continuous words are never split for tagging
 - <wintitle> for words before: screen, window, session, dialogue box, panel, section
 - <userinput> for words after: set to, as
 - <note> for note blocks (no <p> inside)
@@ -367,11 +371,12 @@ def _preprocess_html_input(html_text):
     text = re.sub(r'<(?:code|tt|kbd|samp)\b[^>]*>(.*?)</(?:code|tt|kbd|samp)>',
                   _codeph_replacer, text, flags=re.DOTALL | re.IGNORECASE)
 
-    # Convert headings to uppercase lines (will be detected as sections)
+    # Convert headings to marked lines (detected as section titles later).
+    # Preserve the ORIGINAL casing — do not force upper case.
     for level in range(1, 7):
         text = re.sub(
             r'<h' + str(level) + r'[^>]*>(.*?)</h' + str(level) + r'>',
-            lambda m: '\n' + _strip_tags(m.group(1)).strip().upper() + '\n',
+            lambda m: '\n{{HEADING:' + re.sub(r'\s+', ' ', _strip_tags(m.group(1))).strip() + '}}\n',
             text, flags=re.DOTALL | re.IGNORECASE
         )
 
@@ -808,9 +813,69 @@ def _apply_inline_tags(text, is_task=False):
     result = _apply_uicontrol(escaped)
     result = _apply_wintitle(result)
     result = _apply_userinput(result)
+    # Tag CamelCase UI-element identifiers (e.g. FTSFMachineRunning)
+    result = _apply_ui_tokens(result)
     # Resolve inline code markers into <codeph> (content already XML-escaped above)
     result = re.sub(r'\{\{CODEPH:(.*?)\}\}', r'<codeph>\1</codeph>', result)
     return result
+
+
+# Matches a CamelCase / mixed-case technical identifier used as a UI element
+# name, e.g. FTSFMachineRunning, FTSFMachineInterruption, KepwareData.
+# Requires at least one lower->upper or upper-run->upper transition so ordinary
+# Title Case words ("Machine", "Server") are NOT matched.
+_UI_TOKEN_RE = re.compile(
+    r'(?<![>\w])'                      # not already inside a tag/word
+    r'([A-Za-z]*[a-z][A-Z][A-Za-z]*'   # lower then Upper (camelCase / MixedCase)
+    r'|[A-Z]{2,}[a-z][A-Za-z]*)'       # ACRONYM followed by Word (e.g. FTSFMachine)
+    r'(?![\w>])'
+)
+
+
+def _apply_ui_tokens(text):
+    """Wrap CamelCase UI-element identifiers in <uicontrol>.
+
+    Skips content already inside a tag (e.g. <uicontrol>..</uicontrol>,
+    <codeph>..</codeph>) and code markers so nothing is double-tagged or
+    tags are injected into code.
+    """
+    # Split on existing tags and code markers; only tag the plain-text segments.
+    segments = re.split(r'(<[^>]+>|\{\{CODEPH:.*?\}\}|\{\{CODEBLOCK:.*?\}\})', text)
+    out = []
+    inside_tag_depth = 0
+    for seg in segments:
+        if not seg:
+            continue
+        # Existing tag or code marker — pass through untouched
+        if seg.startswith('<') or seg.startswith('{{'):
+            out.append(seg)
+            # Track whether we're between an opening and closing inline tag
+            if re.match(r'<[a-zA-Z]', seg):
+                inside_tag_depth += 1
+            elif seg.startswith('</'):
+                inside_tag_depth = max(0, inside_tag_depth - 1)
+            continue
+        if inside_tag_depth > 0:
+            # Text already wrapped by another inline tag — leave it alone
+            out.append(seg)
+            continue
+
+        def _tok(m):
+            token = m.group(1)
+            start, end = m.start(1), m.end(1)
+            before = seg[start - 1] if start > 0 else ''
+            after = seg[end] if end < len(seg) else ''
+            # Skip tokens that are part of a file path or a filename:
+            #  - preceded by a path separator (\ or /) or a dot
+            #  - followed by a path separator or a file extension (.exe, .dll)
+            if before in ('\\', '/', '.'):
+                return token
+            if after == '.' or after in ('\\', '/'):
+                return token
+            return '<uicontrol>' + token + '</uicontrol>'
+
+        out.append(_UI_TOKEN_RE.sub(_tok, seg))
+    return ''.join(out)
 
 
 def _apply_bold_markers(text, is_task=False):
@@ -907,6 +972,33 @@ def _apply_menucascade(text):
 # BLOCK-LEVEL PARSING HELPERS
 # =============================================================================
 
+def _split_note_from_text(text, is_task=False):
+    """Split any inline 'Note:' (or Warning/Caution/etc.) out of a text block.
+
+    Returns (main_text, note_xml_or_empty). Everything from the note keyword
+    onward becomes a <note> element; the text before it is returned separately.
+    This enforces the rule: a <note> is emitted whenever 'Note:' appears.
+    """
+    m = re.search(
+        r'\b(Note|Warning|Caution|Danger|Tip|Important)\s*:\s*',
+        text)
+    if not m:
+        return text, ""
+    main = text[:m.start()].strip()
+    note_body = text[m.end():].strip()
+    kw = m.group(1).lower()
+    type_map = {
+        'warning': ' type="warning"', 'caution': ' type="caution"',
+        'danger': ' type="danger"', 'tip': ' type="tip"',
+        'important': ' type="important"',
+    }
+    attr = type_map.get(kw, '')
+    note_xml = ""
+    if note_body:
+        note_xml = "<note" + attr + ">" + _apply_inline_tags(note_body, is_task=is_task) + "</note>\n"
+    return main, note_xml
+
+
 def _is_note_line(line):
     """Check if a line starts a note block. Supports typed notes."""
     return bool(re.match(
@@ -990,6 +1082,12 @@ def _strip_unordered_prefix(line):
     return result
 
 
+def _heading_marker_text(line):
+    """If the line is a {{HEADING:...}} marker, return its text; else None."""
+    m = re.match(r'^\s*\{\{HEADING:(.*?)\}\}\s*$', line, re.DOTALL)
+    return m.group(1).strip() if m else None
+
+
 def _is_heading_line(line):
     """Check if a line appears to be a heading/section title.
 
@@ -1001,6 +1099,9 @@ def _is_heading_line(line):
     stripped = line.strip()
     if not stripped:
         return False
+    # Explicit heading marker from HTML <h1>-<h6> preprocessing
+    if _heading_marker_text(stripped) is not None:
+        return True
     # ALL CAPS (from HTML preprocessing of <h1>-<h6>)
     if (stripped == stripped.upper()
             and len(stripped) > 2
@@ -1240,6 +1341,16 @@ def generate_concept_xml(text):
             continue
 
         # Check for section title (bold standalone line from pasted content)
+        # Explicit heading marker (from HTML <h1>-<h6>) — preserves casing.
+        heading_text = _heading_marker_text(line)
+        if heading_text is not None:
+            if in_section:
+                xml_parts.append("</section>\n")
+            xml_parts.append('<section>\n<title>' + xml_escape(heading_text) + '</title>\n')
+            in_section = True
+            idx += 1
+            continue
+
         # Every bold standalone line becomes a section title
         bold_title_match = re.match(r'^\s*\{\{BOLD:(.*?)\}\}\s*$', line)
         if bold_title_match:
@@ -1269,14 +1380,21 @@ def generate_concept_xml(text):
             idx += 1
             continue
 
-        # Default: paragraph
-        xml_parts.append("<p>" + _apply_inline_tags(line.strip(), is_task=False) + "</p>\n")
+        # Default: paragraph. If it contains an inline "Note:", split the note
+        # out into its own <note> block (rule: always tag Note:).
+        main_text, note_xml = _split_note_from_text(line.strip())
+        if main_text:
+            xml_parts.append("<p>" + _apply_inline_tags(main_text, is_task=False) + "</p>\n")
+        if note_xml:
+            xml_parts.append(note_xml)
         idx += 1
 
     if in_section:
         xml_parts.append("</section>\n")
 
     result = "<conbody>\n" + "".join(xml_parts) + "</conbody>"
+    # Clean up any unresolved heading markers (emit their text as a paragraph)
+    result = re.sub(r'\{\{HEADING:(.*?)\}\}', r'\1', result)
     # Clean up any unresolved bold markers that leaked through
     result = re.sub(r'\{\{BOLD:(.*?)\}\}', r'<uicontrol>\1</uicontrol>', result)
     # Safety: escape any remaining bare & that aren't valid XML entity references
@@ -1773,14 +1891,23 @@ def generate_task_xml(text):
         # Numbered step
         if _is_ordered_list_item(line.strip()):
             cmd_text = _strip_ordered_prefix(line.strip()).strip()
+            # Split any inline "Note:" out of the command into a step <note>.
+            cmd_main, cmd_note = _split_note_from_text(cmd_text, is_task=True)
             xml_parts.append("<step>\n")
-            xml_parts.append("<cmd>" + _apply_inline_tags(cmd_text, is_task=True) + "</cmd>\n")
+            xml_parts.append("<cmd>" + _apply_inline_tags(cmd_main or cmd_text, is_task=True) + "</cmd>\n")
             idx += 1
 
             # Check for sub-content within this step (info, fieldlist, notes, lists)
             step_info = _parse_step_info(lines, idx)
-            if step_info["xml"]:
-                xml_parts.append(step_info["xml"])
+            info_body = step_info["xml"]
+            if cmd_note:
+                if info_body.startswith("<info>\n"):
+                    # Insert the note right after the opening <info>
+                    info_body = "<info>\n" + cmd_note + info_body[len("<info>\n"):]
+                else:
+                    info_body = "<info>\n" + cmd_note + "</info>\n" + info_body
+            if info_body:
+                xml_parts.append(info_body)
             idx = step_info["end_idx"]
 
             xml_parts.append("</step>\n")
@@ -1789,9 +1916,11 @@ def generate_task_xml(text):
 
         # Non-step content after steps started — wrap in a step with info
         if in_steps:
-            # This might be additional context; create a step for it
+            cmd_main, cmd_note = _split_note_from_text(line.strip(), is_task=True)
             xml_parts.append("<step>\n")
-            xml_parts.append("<cmd>" + _apply_inline_tags(line.strip(), is_task=True) + "</cmd>\n")
+            xml_parts.append("<cmd>" + _apply_inline_tags(cmd_main or line.strip(), is_task=True) + "</cmd>\n")
+            if cmd_note:
+                xml_parts.append("<info>\n" + cmd_note + "</info>\n")
             idx += 1
             xml_parts.append("</step>\n")
             continue
@@ -1802,6 +1931,8 @@ def generate_task_xml(text):
         xml_parts.append("</steps>\n")
 
     result = "<taskbody>\n" + "".join(xml_parts) + "</taskbody>"
+    # Clean up any unresolved heading/bold markers that leaked through
+    result = re.sub(r'\{\{HEADING:(.*?)\}\}', r'\1', result)
     # Safety: escape any remaining bare & that aren't valid XML entity references
     result = re.sub(r'&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)', '&amp;', result)
     # Safety: escape any remaining unmatched < that aren't valid XML tags
@@ -1916,8 +2047,15 @@ def _is_numbered_field_line(line):
     if not m:
         return False
     name = m.group(1).strip()
-    # Field name should be short and not itself end a sentence
-    return bool(name) and len(name) < 60 and not name.endswith('.')
+    if not name or len(name) >= 60:
+        return False
+    # A field label is a short noun phrase — it must NOT contain sentence
+    # punctuation or a note keyword (those indicate prose, not a field name).
+    if re.search(r'[.!?]', name):
+        return False
+    if re.search(r'\b(Note|Warning|Caution|Danger|Tip|Important)\b', name):
+        return False
+    return True
 
 
 def _is_numbered_fieldlist_candidate(lines, idx):
