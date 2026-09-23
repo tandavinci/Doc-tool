@@ -1098,6 +1098,14 @@ def generate_concept_xml(text):
             xml_parts.append(list_xml)
             continue
 
+        # Check for bulleted definition list (bullet label + description pairs).
+        # Must be tested BEFORE the plain unordered-list check so field lists
+        # written as bullets become <dl>/<dlentry>/<dt>/<dd> instead of <ul>.
+        if _is_bulleted_dl_candidate(lines, idx):
+            dl_xml, idx = _parse_bulleted_definition_list(lines, idx, is_task=False)
+            xml_parts.append(dl_xml)
+            continue
+
         # Check for unordered list
         if _is_unordered_list_item(line):
             list_xml, idx = _parse_unordered_list(lines, idx, is_task=False)
@@ -1304,6 +1312,84 @@ def _is_dl_candidate(lines, idx):
     scan = _next_nonblank_idx(lines, scan)
     # Require a second pair to confirm this is a field list, not a heading.
     return _is_single_dl_pair(lines, scan)[0]
+
+
+def _is_bulleted_dl_pair(lines, idx):
+    """Check whether a bulleted term + description pair starts at idx.
+
+    Pattern (common in Word/Google Docs field lists):
+        * Field Name
+        The description of that field.
+
+    The term is a bullet item with a short label; the description is the
+    next non-blank line that is NOT itself a bullet. Returns
+    (is_pair, term_text, description_idx).
+    """
+    if idx >= len(lines) or not _is_unordered_list_item(lines[idx].strip()):
+        return False, "", idx
+    term = _strip_unordered_prefix(lines[idx].strip()).strip()
+    # Term should be a short label (field name), not a full sentence
+    if not term or len(term) >= 60 or term.endswith(('.', '!', '?')):
+        return False, "", idx
+    desc_idx = _next_nonblank_idx(lines, idx + 1)
+    if desc_idx >= len(lines):
+        return False, "", idx
+    desc = lines[desc_idx].strip()
+    # Description must be a non-bullet line with real prose content
+    if not desc or _is_unordered_list_item(desc) or _is_ordered_list_item(desc):
+        return False, "", idx
+    return True, term, desc_idx
+
+
+def _is_bulleted_dl_candidate(lines, idx):
+    """Detect a bulleted definition-list block.
+
+    A bullet immediately followed by a non-bullet description line is a field
+    definition (unlike a normal bullet list, whose items are consecutive
+    bullets with no prose paragraph between them). A single such pair is
+    enough to treat the block as a <dl>.
+    """
+    return _is_bulleted_dl_pair(lines, idx)[0]
+
+
+def _parse_bulleted_definition_list(lines, idx, is_task=False):
+    """Parse a bulleted field list into <dl>/<dlentry>/<dt>/<dd> XML.
+
+    Each bullet label becomes a <dt>; the following non-bullet lines
+    (until the next bullet) become the <dd>.
+    """
+    xml = "<dl>\n"
+    while idx < len(lines):
+        idx = _next_nonblank_idx(lines, idx)
+        if idx >= len(lines):
+            break
+        is_pair, term, desc_idx = _is_bulleted_dl_pair(lines, idx)
+        if not is_pair:
+            break
+
+        xml += "<dlentry>\n"
+        xml += "<dt>" + _apply_inline_tags(term, is_task=is_task) + "</dt>\n"
+
+        idx = desc_idx
+        desc_parts = []
+        while idx < len(lines) and lines[idx].strip():
+            # Stop when the next bullet term begins
+            if _is_unordered_list_item(lines[idx].strip()):
+                break
+            desc_line = lines[idx].strip()
+            if _is_note_line(desc_line):
+                note_text = _strip_note_prefix(desc_line)
+                desc_parts.append("<note>" + xml_escape(note_text) + "</note>")
+                idx += 1
+                continue
+            desc_parts.append(_apply_inline_tags(desc_line, is_task=is_task))
+            idx += 1
+
+        xml += "<dd>" + " ".join(desc_parts) + "</dd>\n"
+        xml += "</dlentry>\n"
+
+    xml += "</dl>\n"
+    return xml, idx
 
 
 def _parse_definition_list(lines, idx, is_task=False):
