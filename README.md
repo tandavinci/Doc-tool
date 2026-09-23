@@ -1,6 +1,24 @@
 ﻿# Documentation AI Tool
+# Documentation AI Tool
 
-A desktop application for technical writers that provides AI-powered content analysis, standards-compliant drafting, DITA XML conversion, document compliance review, and a full-featured document editor — all working offline in one integrated workspace.
+A desktop application for technical writers that provides AI-powered content analysis, standards-compliant drafting, DITA XML conversion, document compliance review, JIRA analysis, and a full-featured document editor — all working offline in one integrated workspace.
+
+> **Branch `Sept26`** — this build includes the latest DOC to DITA converter improvements (field lists, definition lists, code blocks, note handling, casing preservation) and ships as a ready-to-run packaged Windows app that needs no Python, Node.js, Ollama install, or internet.
+
+---
+
+## Download & Run the Packaged App (No Install Needed)
+
+The easiest way to use the tool is the packaged Windows build. It bundles the app, the Python backend, Ollama, and the AI model — nothing else to install.
+
+1. Get the distributable: **`dist/Documentation-AI-Tool-Sept26-Windows-x64.zip`** (~3.8 GB).
+2. Right-click the zip → **Extract All** to a folder (for example `C:\DocAITool`).
+3. Open the extracted folder and double-click **`Content Analysis.exe`**.
+4. On first launch the app starts the bundled Ollama server automatically. The DITA converter, analysis, review, and editor features work immediately; the AI Assistant is ready once Ollama finishes loading the model (a few seconds).
+
+That's it — no Python, Node.js, separate Ollama install, or internet connection required.
+
+> Windows SmartScreen may warn about an unsigned app the first time. Choose **More info → Run anyway**. The build is unsigned by design (internal tool).
 
 ---
 
@@ -18,7 +36,7 @@ Technical writers spend significant time ensuring content meets Infor Informatio
 
 - **Draft and review in one place** — The Initial Draft editor gives you a lightweight Word-like environment with formatting, comments, and replies. Compose content, annotate it with review comments, and send it directly to analysis.
 
-- **First Draft rewriter** — Paste rough content and get a standards-compliant rewrite with side-by-side comparison showing every change made and which rule triggered it.
+- **Standards rewriter** — Inside Quick Review, paste rough content and get a standards-compliant rewrite with side-by-side comparison showing every change made and which rule triggered it.
 
 - **Works fully offline** — After initial setup, no internet connection is required. The AI model, analysis engine, and all tools run locally on your machine.
 
@@ -64,8 +82,14 @@ Technical writers spend significant time ensuring content meets Infor Informatio
 ### 3. DOC to DITA Converter
 - Convert rich text or plain content into DITA XML format
 - Supports **Concept** and **Task** topic types
-- Paste from Word/Google Docs with formatting preserved
-- Upload `.docx`, `.html`, or `.txt` files directly
+- Paste from Word/Google Docs with formatting preserved, or upload `.docx`, `.html`, or `.txt`
+- Structure detection built for real-world Word/Docs paste:
+  - **Field lists / definition lists** — bulleted and numbered field/description pairs become `<dl>/<dlentry>/<dt>/<dd>` (concept) or `<fieldlist>/<field>/<fieldname>/<fielddesc>` (task), with nested value bullets rendered as `<ul>`
+  - **Steps** — numbered, lettered, tab-separated, and bold list markers are all recognized as `<step>`s (the marker is never mistaken for a UI control)
+  - **Code** — pasted XML/code blocks become `<codeblock>`; inline code becomes `<codeph>`, with angle brackets and ampersands safely escaped
+  - **Notes** — any inline `Note:` (or Warning/Caution/etc.) is emitted as a `<note>`
+  - **UI elements** — CamelCase identifiers (for example `FTSFMachineRunning`) are tagged as `<uicontrol>`; file paths and filenames are left untouched
+  - **Faithful text** — original casing is preserved (headings are not force-uppercased) and sentences are never split mid-phrase for tagging
 - One-click copy or download of generated XML
 
 ### 4. Initial Draft Editor (Lightweight Word Processor)
@@ -122,19 +146,18 @@ Technical writers spend significant time ensuring content meets Infor Informatio
 - Suggested changes panel with Accept/Dismiss per suggestion
 - Translation risks and reuse opportunities identification
 
-### 7. First Draft — Standards Rewriter
-- Paste rough content and generate a standards-compliant rewrite
-- Side-by-side comparison with highlighted changes (deletions in red, insertions in green)
-- Detailed change log showing each rule that was applied
-- Upload .docx or .txt files as input
-- Copy or download the rewritten output
-
-### 8. Impact Analyzer (JIRA + DITA Map)
-- Upload JIRA export (Excel) and DITA map output (ZIP of HTML topics)
-- Auto-detects column mappings in JIRA exports
-- Classifies topics into "Create" and "Update" categories
-- Configurable match sensitivity (Strict, Normal, Loose)
+### 7. Doc Impact
+- Import validation-session JSON files (no credentials required)
+- Dashboard view of documentation impact across imported items
 - Export results as CSV
+
+### 8. JIRA Dashboard
+- Fetch and review JIRA issues, with AI-assisted summaries and documentation-impact analysis
+- **Quick Mode** toggle uses fast rule-based analysis (no LLM) for instant results
+- AI mode (when Ollama is available) provides richer summaries and missing-field detection
+- Requires JIRA credentials for live fetch; Quick Mode works on imported issue data
+
+> A standards-based **rewriter** (paste rough content, get a compliant rewrite with tracked changes) is available inside **Quick Review**.
 
 ---
 
@@ -182,17 +205,36 @@ See [SETUP.md](SETUP.md) for detailed instructions, building distributables, and
 
 ## Building a Standalone Distributable
 
-To create an installer that works on any Windows PC without Python, Node.js, or internet:
+The build bundles everything — app, Python backend, Ollama, and the ~2 GB AI model — into a fully offline package. Because that payload is ~5 GB, the recommended shareable form is a **packaged folder zipped for distribution** (a single NSIS installer can't memory-map a payload that large).
 
-```batch
-build-all.bat
+**Prerequisites (build machine only):** Python 3.10+, Node.js 18+, Ollama with the `llama3.2:latest` model pulled.
+
+Steps performed for the `Sept26` build:
+
+```powershell
+# 1. Rebuild the Python backend into backend.exe
+py -m PyInstaller --distpath ./backend-dist --workpath ./build-backend --clean --noconfirm backend.spec
+
+# 2. Bundle Ollama + model into ollama-bundle/
+#    (ollama.exe, lib/, and %USERPROFILE%\.ollama\models  ->  ollama-bundle\)
+
+# 3. Package the app into an unpacked folder (no size limit)
+npx electron-builder --dir            # produces dist\win-unpacked\
+
+# 4. Zip the folder for sharing
+Compress-Archive -Path dist\win-unpacked\* `
+  -DestinationPath dist\Documentation-AI-Tool-Sept26-Windows-x64.zip
 ```
 
 Output in `dist/`:
-- `Content Analysis Setup *.exe` — Standard installer
-- `Content Analysis-Portable-*.exe` — Portable (no install needed)
+- `win-unpacked/` — the runnable app folder (double-click `Content Analysis.exe`)
+- `Documentation-AI-Tool-Sept26-Windows-x64.zip` — the shareable single-file distributable (~3.8 GB)
 
-The package bundles everything: app, Python backend, Ollama, and the AI model.
+**Lighter build (no bundled AI model, ~150 MB):** delete or empty `ollama-bundle/` before step 3. Every feature still works offline except the AI Assistant / JIRA-AI, which then need Ollama installed separately (`ollama pull llama3.2:latest`). With a small payload, the standard installer works too:
+
+```batch
+npm run dist          :: NSIS installer + portable exe in dist\
+```
 
 ---
 
@@ -214,9 +256,12 @@ Doc-AI-Analyst/
 │   ├── rules.py           # Writing rules and violations
 │   ├── utils.py           # Shared utilities (tokenization, XML generation)
 │   ├── ai_assistant.py    # AI chat engine (Ollama/OpenAI-compatible API)
-│   ├── review_engine.py   # Quick Review compliance scoring
+│   ├── review_engine.py   # Quick Review compliance scoring + rewriter
 │   ├── first_draft_engine.py  # Standards-based rewriting engine
-│   ├── dita_converter.py  # DITA XML generation
+│   ├── dita_converter.py  # DITA XML generation (concept + task)
+│   ├── doc_impact.py      # Doc Impact dashboard (imported JSON)
+│   ├── jira_handler.py    # JIRA fetch/detail
+│   ├── jira_summarizer.py # JIRA AI summaries + doc-impact
 │   └── markitdown_handler.py  # File/URL to Markdown conversion
 ├── setup.bat              # One-click setup (installs Ollama, model, deps)
 ├── build-all.bat          # Build standalone offline distributable
@@ -267,8 +312,8 @@ After running `setup.bat` once (requires internet for initial download):
 | MarkItDown (files) | Yes | File conversion is local |
 | MarkItDown (URLs) | No | Requires internet to fetch the URL |
 | Quick Review | Yes | Scoring engine runs locally |
-| First Draft | Yes | Rewrite rules are local |
-| Impact Analyzer | Yes | Local similarity matching |
+| Doc Impact | Yes | Works on imported JSON files |
+| JIRA Dashboard | Partly | Quick Mode is local; live fetch needs JIRA access |
 
 ---
 
