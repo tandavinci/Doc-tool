@@ -1462,6 +1462,8 @@ def generate_task_xml(text):
     - Uses <steps>/<step>/<cmd> for numbered instructions
     - Uses <menucascade> for ">" paths
     - Uses <fieldlist>/<field>/<fieldname>/<fielddesc> for field definitions
+      (detects bulleted "* Field / description" and numbered
+      "N Field: description" formats, each grouped into one step's <info>)
     - Uses <info> for additional content within a step
     - Applies <uicontrol>, <wintitle>, <userinput> inline tags
     - Handles notes (no <p> inside), lists inside <info>
@@ -1506,13 +1508,30 @@ def generate_task_xml(text):
             xml_parts.append("<shortdesc>" + _apply_inline_tags(shortdesc_text, is_task=True) + "</shortdesc>\n")
         idx = first_step_idx
     elif first_step_idx is None:
-        # No numbered steps found — treat all content as steps-unordered or context
-        # Try to find the first meaningful paragraph as shortdesc
-        for i, line in enumerate(lines):
-            if line.strip():
-                xml_parts.append("<shortdesc>" + _apply_inline_tags(line.strip(), is_task=True) + "</shortdesc>\n")
-                idx = i + 1
+        # No numbered steps found. Collect leading prose (title + intro
+        # sentences) as the shortdesc, stopping at the first field list, a
+        # lead-in line ending with ':', or a note.
+        shortdesc_lines = []
+        i = 0
+        while i < len(lines):
+            stripped = lines[i].strip()
+            if not stripped:
+                i += 1
+                continue
+            # Stop at the start of field-list content or a lead-in line
+            if (_is_bulleted_fieldlist_candidate(lines, i)
+                    or _is_numbered_fieldlist_candidate(lines, i)
+                    or _is_note_line(stripped)
+                    or stripped.endswith(':')):
                 break
+            # Skip the gerund-style title line (e.g., "Linking machine ...")
+            if not (len(shortdesc_lines) == 0 and _is_heading_line(stripped)):
+                shortdesc_lines.append(stripped)
+            i += 1
+        if shortdesc_lines:
+            shortdesc_text = " ".join(shortdesc_lines)
+            xml_parts.append("<shortdesc>" + _apply_inline_tags(shortdesc_text, is_task=True) + "</shortdesc>\n")
+        idx = i
 
     # Parse steps and content
     xml_parts.append("<steps>\n")
@@ -1533,6 +1552,42 @@ def generate_task_xml(text):
             xml_parts.append("<info>" + _render_codeblock_marker(line) + "</info>\n")
             xml_parts.append("</step>\n")
             idx += 1
+            continue
+
+        # Numbered inline field list (e.g. "1\tMachine Server: description").
+        # These are field definitions, not procedural steps, so wrap the whole
+        # block in a single step's <info><fieldlist>.
+        if _is_numbered_fieldlist_candidate(lines, idx):
+            fl_xml, idx = _parse_numbered_fieldlist(lines, idx)
+            xml_parts.append("<step>\n")
+            xml_parts.append("<cmd>Specify this information:</cmd>\n")
+            xml_parts.append("<info>\n" + fl_xml + "</info>\n")
+            xml_parts.append("</step>\n")
+            has_steps = True
+            continue
+
+        # A lead-in line ending with ':' followed by a bulleted field list.
+        # Emit the lead-in as the step command and the field list as its <info>.
+        stripped_line = line.strip()
+        if (stripped_line.endswith(':')
+                and _is_bulleted_fieldlist_candidate(lines, _next_nonblank_idx(lines, idx + 1))):
+            fl_start = _next_nonblank_idx(lines, idx + 1)
+            fl_xml, idx = _parse_bulleted_fieldlist(lines, fl_start)
+            xml_parts.append("<step>\n")
+            xml_parts.append("<cmd>" + _apply_inline_tags(stripped_line, is_task=True) + "</cmd>\n")
+            xml_parts.append("<info>\n" + fl_xml + "</info>\n")
+            xml_parts.append("</step>\n")
+            has_steps = True
+            continue
+
+        # Bulleted field list with no explicit lead-in — still emit as a step.
+        if _is_bulleted_fieldlist_candidate(lines, idx):
+            fl_xml, idx = _parse_bulleted_fieldlist(lines, idx)
+            xml_parts.append("<step>\n")
+            xml_parts.append("<cmd>Specify this information:</cmd>\n")
+            xml_parts.append("<info>\n" + fl_xml + "</info>\n")
+            xml_parts.append("</step>\n")
+            has_steps = True
             continue
 
         # Numbered step
@@ -1645,6 +1700,158 @@ def _parse_step_info(lines, start_idx):
         xml = "<info>\n" + "".join(info_parts) + "</info>\n"
 
     return {"xml": xml, "end_idx": idx}
+
+
+# Matches a numbered field line where the number and label are on the same
+# line as the description, e.g. "1\tMachine Server: The internal FT name..."
+# or "1. Polling Interval: The default interval..."
+_NUMBERED_FIELD_RE = re.compile(r'^\s*\d+[\.\)]?[\t ]+(.+?):\s+(.+)$')
+
+
+def _is_numbered_field_line(line):
+    """Check if a line is a 'N<sep>FieldName: description' field entry."""
+    m = _NUMBERED_FIELD_RE.match(line)
+    if not m:
+        return False
+    name = m.group(1).strip()
+    # Field name should be short and not itself end a sentence
+    return bool(name) and len(name) < 60 and not name.endswith('.')
+
+
+def _is_numbered_fieldlist_candidate(lines, idx):
+    """Detect a block of 'N FieldName: description' numbered field entries."""
+    return _is_numbered_field_line(lines[idx].strip()) if idx < len(lines) else False
+
+
+def _parse_numbered_fieldlist(lines, idx):
+    """Parse 'N FieldName: description' lines into <fieldlist> XML.
+
+    Each numbered line yields one <field> with the label as <fieldname> and
+    the text after the colon as <fielddesc>. Continuation lines (until the
+    next numbered field) are appended to the current description.
+    """
+    xml = "<fieldlist>\n"
+    while idx < len(lines):
+        idx = _next_nonblank_idx(lines, idx)
+        if idx >= len(lines):
+            break
+        m = _NUMBERED_FIELD_RE.match(lines[idx].strip())
+        if not m:
+            break
+        name = m.group(1).strip()
+        desc = m.group(2).strip()
+        idx += 1
+
+        # Collect continuation lines that belong to this description
+        while idx < len(lines) and lines[idx].strip():
+            nxt = lines[idx].strip()
+            if _is_numbered_field_line(nxt) or _is_ordered_list_item(nxt) or _is_unordered_list_item(nxt):
+                break
+            desc += " " + nxt
+            idx += 1
+
+        xml += "<field>\n"
+        xml += "<fieldname><uicontrol>" + xml_escape(name) + "</uicontrol></fieldname>\n"
+        # Split off a trailing "Note:" into a <note> element
+        note_split = re.split(r'\bNote:\s*', desc, maxsplit=1)
+        if len(note_split) == 2:
+            main_desc = note_split[0].strip()
+            note_text = note_split[1].strip()
+            fd = "<fielddesc>" + _apply_inline_tags(main_desc, is_task=True)
+            if note_text:
+                fd += "<note>" + xml_escape(note_text) + "</note>"
+            fd += "</fielddesc>\n"
+            xml += fd
+        else:
+            xml += "<fielddesc>" + _apply_inline_tags(desc, is_task=True) + "</fielddesc>\n"
+        xml += "</field>\n"
+
+    xml += "</fieldlist>\n"
+    return xml, idx
+
+
+def _is_bulleted_fieldlist_candidate(lines, idx):
+    """Detect a bulleted field list (bullet label + description) in task context."""
+    return _is_bulleted_dl_pair(lines, idx)[0]
+
+
+def _parse_bulleted_fieldlist(lines, idx):
+    """Parse a bulleted field list into <fieldlist> XML for task files.
+
+    Each bullet label becomes a <fieldname>; the following non-bullet lines
+    (until the next bullet) become the <fielddesc>. Deeper sub-bullets (e.g.
+    a set of possible values) are rendered as a <ul> inside the <fielddesc>.
+    Inline "Note:" text becomes a <note>.
+    """
+    xml = "<fieldlist>\n"
+    while idx < len(lines):
+        idx = _next_nonblank_idx(lines, idx)
+        if idx >= len(lines):
+            break
+        is_pair, term, desc_idx = _is_bulleted_dl_pair(lines, idx)
+        if not is_pair:
+            break
+
+        xml += "<field>\n"
+        xml += "<fieldname><uicontrol>" + xml_escape(term) + "</uicontrol></fieldname>\n"
+
+        idx = desc_idx
+        desc_parts = []
+        while idx < len(lines) and lines[idx].strip():
+            raw = lines[idx]
+            cur = raw.strip()
+            # Stop when the next bullet field begins
+            if _is_unordered_list_item(cur):
+                break
+            # Stop when a numbered inline field list begins (new step)
+            if _is_numbered_field_line(cur):
+                break
+            # A sub-list of values (indented items) becomes a <ul>
+            if _is_ordered_list_item(cur):
+                list_xml, idx = _parse_ordered_list(lines, idx, is_task=True)
+                desc_parts.append(list_xml)
+                continue
+            # Indented short value lines (e.g. tab-indented Running/Down/Idle)
+            # form a <ul> of possible values.
+            if raw[:1] in ('\t', ' ') and len(cur) < 40 and not cur.endswith(('.', ':')):
+                values = []
+                while idx < len(lines) and lines[idx].strip():
+                    vraw = lines[idx]
+                    vcur = vraw.strip()
+                    if vraw[:1] in ('\t', ' ') and len(vcur) < 40 and not vcur.endswith(('.', ':')) \
+                            and not _is_unordered_list_item(vcur):
+                        values.append(vcur)
+                        idx += 1
+                    else:
+                        break
+                if values:
+                    ul = "<ul>\n" + "".join(
+                        "<li>" + _apply_inline_tags(v, is_task=True) + "</li>\n" for v in values
+                    ) + "</ul>\n"
+                    desc_parts.append(ul)
+                continue
+            # Inline note within the description
+            if _is_note_line(cur):
+                note_text = _strip_note_prefix(cur)
+                desc_parts.append("<note>" + xml_escape(note_text) + "</note>")
+                idx += 1
+                continue
+            # Split a trailing "Note:" out of the same line
+            note_split = re.split(r'\bNote:\s*', cur, maxsplit=1)
+            if len(note_split) == 2 and note_split[0].strip():
+                desc_parts.append(_apply_inline_tags(note_split[0].strip(), is_task=True))
+                if note_split[1].strip():
+                    desc_parts.append("<note>" + xml_escape(note_split[1].strip()) + "</note>")
+                idx += 1
+                continue
+            desc_parts.append(_apply_inline_tags(cur, is_task=True))
+            idx += 1
+
+        xml += "<fielddesc>" + " ".join(desc_parts) + "</fielddesc>\n"
+        xml += "</field>\n"
+
+    xml += "</fieldlist>\n"
+    return xml, idx
 
 
 def _is_fieldlist_candidate(lines, idx):
