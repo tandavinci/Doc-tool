@@ -281,9 +281,17 @@ def _protect_literal_code_blocks(text):
                 if _looks_like_code_line(lines[j]):
                     block.append(lines[j].rstrip())
                     j += 1
-                elif lines[j].strip() == '' and j + 1 < n and _looks_like_code_line(lines[j + 1]):
-                    block.append('')  # keep internal blank line
-                    j += 1
+                elif lines[j].strip() == '':
+                    # Allow one or more blank lines between code lines, as long
+                    # as another code line follows before any non-code content.
+                    k = j
+                    while k < n and lines[k].strip() == '':
+                        k += 1
+                    if k < n and _looks_like_code_line(lines[k]):
+                        block.append('')  # collapse internal blanks to one
+                        j = k
+                    else:
+                        break
                 else:
                     break
             # Only treat as a code block if it has at least 2 real code lines
@@ -376,30 +384,59 @@ def _preprocess_html_input(html_text):
         text, flags=re.DOTALL | re.IGNORECASE
     )
 
-    # Convert ordered lists — merge adjacent <ol> blocks first
-    text = re.sub(r'</ol>\s*<ol[^>]*>', '', text, flags=re.IGNORECASE)
+    # Convert <br> to newlines BEFORE list processing so that a field name and
+    # its description separated by <br> inside an <li> land on separate lines.
+    text = re.sub(r'<br\s*/?\s*>', '\n', text, flags=re.IGNORECASE)
+
+    def _split_li_lines(item_html):
+        """Return the text lines of an <li>, splitting on internal newlines."""
+        item_text = _strip_tags(item_html)
+        return [ln.strip() for ln in item_text.split('\n') if ln.strip()]
 
     def _convert_ol(m):
-        items = re.findall(r'<li[^>]*>(.*?)</li>', m.group(0), re.DOTALL | re.IGNORECASE)
+        items = re.findall(r'<li[^>]*>(.*?)</li>', m.group(1), re.DOTALL | re.IGNORECASE)
         result = '\n'
         for i, item in enumerate(items, 1):
-            result += str(i) + '. ' + _strip_tags(item).strip() + '\n'
+            lines_ = _split_li_lines(item)
+            if not lines_:
+                continue
+            result += str(i) + '. ' + lines_[0] + '\n'
+            for extra in lines_[1:]:
+                result += extra + '\n'
         return result + '\n'
-
-    text = re.sub(r'<ol[^>]*>.*?</ol>', _convert_ol, text, flags=re.DOTALL | re.IGNORECASE)
-
-    # Convert unordered lists — merge adjacent <ul> blocks first
-    # Word often puts each bullet in its own <ul>, merge them
-    text = re.sub(r'</ul>\s*<ul[^>]*>', '', text, flags=re.IGNORECASE)
 
     def _convert_ul(m):
-        items = re.findall(r'<li[^>]*>(.*?)</li>', m.group(0), re.DOTALL | re.IGNORECASE)
+        items = re.findall(r'<li[^>]*>(.*?)</li>', m.group(1), re.DOTALL | re.IGNORECASE)
         result = '\n'
         for item in items:
-            result += '- ' + _strip_tags(item).strip() + '\n'
+            lines_ = _split_li_lines(item)
+            if not lines_:
+                continue
+            result += '- ' + lines_[0] + '\n'
+            for extra in lines_[1:]:
+                result += extra + '\n'
         return result + '\n'
 
-    text = re.sub(r'<ul[^>]*>.*?</ul>', _convert_ul, text, flags=re.DOTALL | re.IGNORECASE)
+    # Convert lists INNERMOST-FIRST: repeatedly convert any <ul>/<ol> that has
+    # no nested list inside it. This correctly handles nested value lists
+    # (e.g. Running/Down/Idle under a Status field) without the outer regex
+    # stopping at the first inner </ul>.
+    for _ in range(10):
+        before = text
+        # Merge adjacent same-type lists first (Word emits one <ul> per bullet)
+        text = re.sub(r'</ol>\s*<ol[^>]*>', '', text, flags=re.IGNORECASE)
+        text = re.sub(r'</ul>\s*<ul[^>]*>', '', text, flags=re.IGNORECASE)
+        # Innermost = a list whose body contains no further <ul>/<ol>
+        text = re.sub(r'<ol[^>]*>((?:(?!<(?:ul|ol)\b).)*?)</ol>',
+                      _convert_ol, text, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r'<ul[^>]*>((?:(?!<(?:ul|ol)\b).)*?)</ul>',
+                      _convert_ul, text, flags=re.DOTALL | re.IGNORECASE)
+        if text == before:
+            break
+
+    # Fallback: convert any lists that still remain (e.g. malformed nesting)
+    text = re.sub(r'<ol[^>]*>(.*?)</ol>', _convert_ol, text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'<ul[^>]*>(.*?)</ul>', _convert_ul, text, flags=re.DOTALL | re.IGNORECASE)
 
     # Convert tables directly to DITA table XML format
     # This preserves complex cell content (notes, lists, multi-line text)
@@ -561,11 +598,17 @@ def _preprocess_html_input(html_text):
         # Check if this line is a continuation of the previous
         # Merge if: starts lowercase OR previous line doesn't end with sentence punctuation
         # (indicating the line was broken mid-sentence by word wrap)
+        prev_is_list_item = bool(merged) and (
+            _is_unordered_list_item(merged[-1].strip())
+            or _is_ordered_list_item(merged[-1].strip()))
         if (merged and merged[-1] and stripped
                 and not _is_unordered_list_item(stripped)
                 and not stripped.startswith('{{BOLD:')
                 and not stripped.startswith('{{CODEBLOCK:')
                 and not merged[-1].strip().startswith('{{CODEBLOCK:')
+                # Never merge a description line back into a bullet/numbered
+                # list item — the split is intentional (field name vs. desc).
+                and not prev_is_list_item
                 and not re.match(r'^\d+[\.\)]', stripped)
                 and not re.match(r'^(Note|Warning|Caution|Tip|Important)', stripped, re.IGNORECASE)):
             prev = merged[-1].rstrip()
@@ -1962,9 +2005,27 @@ def _parse_bulleted_fieldlist(lines, idx):
             # Stop at a code block marker (handled as its own block)
             if _is_codeblock_marker(cur):
                 break
-            # Stop when the next bullet field begins
+            # A bullet that begins a new field pair (bullet + description)
+            # ends this description. But a run of "value bullets" (bullets
+            # with no following description, e.g. Running/Down/Idle) belongs
+            # to THIS field and is absorbed as a <ul>.
             if _is_unordered_list_item(cur):
-                break
+                if _is_bulleted_dl_pair(lines, idx)[0]:
+                    break  # next field
+                values = []
+                while idx < len(lines) and _is_unordered_list_item(lines[idx].strip()):
+                    if _is_bulleted_dl_pair(lines, idx)[0]:
+                        break
+                    values.append(_strip_unordered_prefix(lines[idx].strip()).strip())
+                    idx += 1
+                if values:
+                    desc_parts.append(
+                        "<ul>\n" + "".join(
+                            "<li>" + _apply_inline_tags(v, is_task=True) + "</li>\n"
+                            for v in values
+                        ) + "</ul>\n"
+                    )
+                continue
             # Stop when a numbered inline field list begins (new step)
             if _is_numbered_field_line(cur):
                 break
